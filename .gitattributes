@@ -1,0 +1,2 @@
+# override any "core.autocrlf=true" settings
+* text=auto eol=lf

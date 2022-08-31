@@ -1,0 +1,474 @@
+#!/bin/bash
+##########
+# Copyright 2022, Cypress Semiconductor Corporation (an Infineon company) or
+# an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
+#
+# This software, including source code, documentation and related
+# materials ("Software") is owned by Cypress Semiconductor Corporation
+# or one of its affiliates ("Cypress") and is protected by and subject to
+# worldwide patent protection (United States and foreign),
+# United States copyright laws and international treaty provisions.
+# Therefore, you may use this Software only as provided in the license
+# agreement accompanying the software package from which you
+# obtained this Software ("EULA").
+# If no EULA applies, Cypress hereby grants you a personal, non-exclusive,
+# non-transferable license to copy, modify, and compile the Software
+# source code solely for use in connection with Cypress's
+# integrated circuit products.  Any reproduction, modification, translation,
+# compilation, or representation of this Software except as specified
+# above is prohibited without the express written permission of Cypress.
+#
+# Disclaimer: THIS SOFTWARE IS PROVIDED AS-IS, WITH NO WARRANTY OF ANY KIND,
+# EXPRESS OR IMPLIED, INCLUDING, BUT NOT LIMITED TO, NONINFRINGEMENT, IMPLIED
+# WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE. Cypress
+# reserves the right to make changes to the Software without notice. Cypress
+# does not assume any liability arising out of the application or use of the
+# Software or any product or circuit described in the Software. Cypress does
+# not authorize its products for use in any products where a malfunction or
+# failure of the Cypress product may reasonably be expected to result in
+# significant property damage, injury or death ("High Risk Product"). By
+# including Cypress's product in a High Risk Product, the manufacturer
+# of such system or application assumes all risk of such use and in doing
+# so agrees to indemnify Cypress against all liability.
+##########
+
+restore_errexit=""
+test -o errexit && restore_errexit="set -e"
+restore_xtrace="set +x"
+test -o xtrace && restore_xtrace="set -x"
+
+export PYTHONUNBUFFERED=1
+
+top_dir=${0%/*}
+
+# define to skip formatiing in "test_assets"; use "test_format" instead
+SKIP_ASSETS_FORMATTING_TEST=1
+
+# default super-manifest
+uri_super_manifest=https://github.com/Infineon/mtb-super-manifest/raw/v2.X/mtb-super-manifest-fv2.xml
+
+g_manifest_type=""
+g_failed=0
+
+f_syntax=0
+f_format=0
+f_schema=0
+f_assets=0
+f_rules=0
+f_flags=0
+manifest_files=()
+manifest_uri=""
+# parse command line args
+while (( $# > 0 )); do
+  case "$1" in
+    "--syntax")
+      f_syntax=1
+      f_flags=1
+      ;;
+    "--format")
+      f_format=1
+      f_flags=1
+      ;;
+    "--schema")
+      f_schema=1
+      f_flags=1
+      ;;
+    "--assets")
+      f_assets=1
+      f_flags=1
+      ;;
+    "--rules")
+      f_rules=1
+      f_flags=1
+      ;;
+    "--"*)
+      echo "FATAL ERROR: unknown argument $1"
+      exit 2
+      ;;
+    *)
+      arg=$1
+      if [[ ${arg} = "https://"* || ${arg} = "http://"* ]]; then
+        if [[ -z ${manifest_uri} ]]; then
+          manifest_uri=${arg}
+          uri_super_manifest=${manifest_uri}
+        else
+          echo "INFO: 'manifest uri' has already been specified [${manifest_uri}]"
+          echo "FATAL ERROR: unhandled argument ${arg}"
+          exit 2
+        fi
+      else
+        lines=$(ls -d ${arg} 2>/dev/null) || :
+        match=$(echo ${lines} | wc -l)
+        if [[ ${match} -ne 0 ]]; then
+          for x in $(echo ${lines}); do
+            manifest_files+=(${x})
+          done
+        else
+          echo "FATAL ERROR: the specified 'manifest file' (${arg}) does not exist"
+          exit 3
+        fi
+      fi
+      ;;
+  esac
+  shift
+done
+
+if [[ -n ${manifest_uri} && ${#manifest_files[@]} -ne 0 ]]; then
+  echo "FATAL ERROR: cannot specify both a 'manifest uri' and 'manifest files'!"
+  echo "INFO: 'manifest uri' [${manifest_uri}]"
+  echo "INFO: 'manifest file(s)' [${manifest_files[@]}]"
+  exit 2
+fi
+
+
+function requires_xmllint()
+{
+  found=$(which xmllint) || :
+  if [[ -z ${found} ]]; then
+    echo "FATAL ERROR: 'xmllint' is required!"
+    echo " ... perhaps: sudo apt install libxml2-utils"
+    exit 4
+  fi
+}
+
+function requires_python3()
+{
+  found=$(which python3) || :
+  if [[ -z ${found} ]]; then
+    echo "FATAL ERROR: 'python3' is required!"
+    echo " ... perhaps: sudo apt install python3"
+    exit 4
+  fi
+}
+
+function requires_python3_module()
+{
+  module=$1
+  set +e
+  python3 -c "import ${module}" 2>/dev/null
+  rc=$?
+  ${restore_errexit}
+  if [[ ${rc} -ne 0 ]]; then
+    echo "FATAL ERROR: python3 module '${module}' is required!"
+    echo " ... perhaps: pip install ${module}"
+    exit 4
+  fi
+}
+
+function read_xml()
+{
+  local IFS=\>
+  read -r -d \< ENTITY CONTENT
+  rc=$?
+  return ${rc}
+}
+
+function detect_type()
+{
+  eval manifest_type='$'$1  # arg is variable name
+  filename=$2
+
+  line=$(head -1 ${filename})
+  line="${line//$'\r'}"  # strip the '\r' character
+
+  manifest_type=""
+  [[ ${line} = '<apps>' ]]                          && manifest_type="app"
+  [[ ${line} = '<apps version="2.0">' ]]            && manifest_type="app"
+  [[ ${line} = '<boards>' ]]                        && manifest_type="board"
+  [[ ${line} = '<dependencies>' ]]                  && manifest_type="dependency"
+  [[ ${line} = '<dependencies version="2.0">' ]]    && manifest_type="dependency"
+  [[ ${line} = '<middleware>' ]]                    && manifest_type="middleware"
+  [[ ${line} = '<middleware version="2.0">' ]]      && manifest_type="middleware"
+  [[ ${line} = '<super-manifest>' ]]                && manifest_type="super"
+  [[ ${line} = '<super-manifest version="2.0">' ]]  && manifest_type="super"
+
+  if [[ ${manifest_type} = "" ]]; then
+    echo -e "\nFATAL ERROR: cannot determine 'manifest type' from '${line}' in '${filename}'"
+  fi
+  eval $1=${manifest_type}
+
+  return 0
+}
+
+function test_syntax()
+{
+  echo -e "\n\n########## test syntax ##########"
+  requires_xmllint
+  set +e
+  echo "+ xmllint ${manifest_file} >/dev/null"
+          xmllint ${manifest_file} >/dev/null
+  rc=$?
+  ${restore_errexit}
+  if [[ ${rc} -eq 0 ]]; then
+    echo ""
+    echo "Manifest: ${manifest_file}"
+    echo "passed syntax validation"
+    echo ""
+  else
+    echo "xmllint returned: ${rc}"
+    g_failed=1
+  fi
+  echo -e "####################"
+}
+
+
+function test_format()
+{
+  echo -e "\n\n########## test format ##########"
+  requires_xmllint
+  requires_python3
+  echo "+ xmllint --format ${manifest_file} | 'post-process with custom format'"
+  x=${manifest_file}
+  y=${x##*/}
+  rm -rf   out/${y}
+  mkdir -p out
+  #
+  ## initial format the file
+  set +e
+  xmllint --format $x > out/$y
+  rc=$?
+  ${restore_errexit}
+  #
+  ## handle optional XML Declaration
+  ## - delete the line in generated file, if XML declaration does not exist in original file
+  s='<?xml version='
+  [[ $(head -1 $x) != "$s"* ]] && sed -i -e "1d" out/$y
+  #
+  ## handle blank lines
+  python3 -u ${top_dir}/format_xml.py $x out/${y}
+  #
+  ## convert from hex to decimal
+  sed -i -e 's,\&#x2122,\&#8482,g'  out/$y
+  sed -i -e 's,\&#xAE,\&#174,g'     out/$y
+  sed -i -e 's,\&#xB1,\&#177,g'     out/$y
+  #
+  # fix issues # TODO
+  ####[[ $y = mtb-bsp-manifest-fv2.xml ]] && sed -i -e 's,\&lt;div class="category",\&lt;div class=\&quot;category\&quot;,g'  out/$y
+  ####[[ $y = mtb-ce-manifest-fv2.xml ]] && unix2dos out/$y
+  ## diff the original and the generated file
+  lines=$(diff $x out/$y | wc -l)
+  if [[ ${lines} -ne 0 ]]; then
+    echo ""
+    echo "xmllint returned: ${rc}"
+    echo "FATAL ERROR: formatting error:"
+    ####diff --ignore-space-change $x out/$y || : # TODO
+    diff $x out/$y || :
+    g_failed=1
+    echo ""
+    echo "Manifest: ${manifest_file}"
+    echo "failed format validation"
+    echo ""
+  else
+    echo ""
+    echo "Manifest: ${manifest_file}"
+    echo "passed format validation"
+    echo ""
+  fi
+  [[ ${rc} -ne 0 ]] && g_failed=1
+  echo -e "####################"
+}
+
+function test_schema()
+{
+  echo -e "\n\n########## test schema ##########"
+  requires_python3
+  requires_python3_module lxml
+  echo -e "+ detect_type g_manifest_type ${manifest_file}"
+             detect_type g_manifest_type ${manifest_file}
+
+  if [[ ! -z ${g_manifest_type} ]]; then
+    set +e
+    echo -e "+ python3 -u ${top_dir}/validate_schema.py ${g_manifest_type} ${manifest_file}"
+               python3 -u ${top_dir}/validate_schema.py ${g_manifest_type} ${manifest_file}
+    rc=$?
+    ${restore_errexit}
+    echo ""
+    [[ ${rc} -ne 0 ]] && { echo "FATAL ERROR: '${manifest_file}' failed validation!"; g_failed=1; }
+  else
+    g_failed=1
+  fi
+  echo -e "####################"
+}
+
+function test_assets()
+{
+  echo -e "\n\n########## test assets ##########"
+  requires_python3
+  requires_python3_module lxml
+  requires_python3_module requests
+  echo -e "+ detect_type g_manifest_type ${manifest_file}"
+             detect_type g_manifest_type ${manifest_file}
+
+  if [[ ! -z ${g_manifest_type} ]]; then
+    x=${manifest_file}
+    y=${x##*/}
+    rm -rf   out/${y}
+    mkdir -p out
+    set +e
+    echo -e "+ python3 -u ${top_dir}/validate_assets.py ${g_manifest_type} ${x} out/${y}"
+               python3 -u ${top_dir}/validate_assets.py ${g_manifest_type} ${x} out/${y}
+    rc=$?
+    ${restore_errexit}
+    echo ""
+    if [[ ${rc} -ne 0 ]]; then
+      echo "FATAL ERROR: '${x}' failed processing!"
+      g_failed=1
+      echo ""
+      echo "Manifest: ${manifest_file}"
+      echo "Failed asset validation"
+      echo ""
+    else
+      ## diff the original and the generated file
+      lines=$(diff $x out/$y | wc -l)
+      if [[ ${lines} -ne 0 && ${SKIP_ASSETS_FORMATTING_TEST} -eq 0 ]]; then
+        echo "FATAL ERROR: formatting error:"
+        diff $x out/$y || :
+        g_failed=1
+        echo ""
+        echo "Manifest: ${manifest_file}"
+        echo "failed asset validation"
+        echo ""
+      else
+        echo ""
+        echo "Manifest: ${manifest_file}"
+        echo "passed asset validation"
+        echo ""
+      fi
+    fi
+  else
+    g_failed=1
+  fi
+  echo -e "####################"
+}
+
+function test_rules()
+{
+  echo -e "\n\n########## test rules ##########"
+  echo -e "####################"
+}
+
+
+## main
+
+if [[ ${#manifest_files[@]} -eq 0 ]]; then
+  # Process the 'super-manifest' file and detect all manifest files
+  ## prepend "ordering characters" ([123],) so that "manifest_files" can be sorted;
+  ##   need to process 'dependency' manifests last
+  manifest_files+=("1,"${uri_super_manifest})
+  while read_xml; do
+    case "${ENTITY}" in
+      "uri")
+        x=("${CONTENT//[[:space:]]}")  # strip all whitespace
+        manifest_files+=("2,"${x})
+        ;;
+      "board-manifest dependency-url="*)
+        x=$(echo "${ENTITY}" | sed -e "s,^.*board-manifest dependency-url=\(.*\)$,\1,")
+        y=("${x//[[:space:]]}")         # strip all whitespace
+        manifest_files+=("3,"${y//\"})  # strip all double-quote characters
+        ;;
+      "middleware-manifest dependency-url="*)
+        x=$(echo "${ENTITY}" | sed -e "s,^.*middleware-manifest dependency-url=\(.*\)$,\1,")
+        y=("${x//[[:space:]]}")          # strip all whitespace
+        manifest_files+=("3,"${y//\"})  # strip all double-quote characters
+        ;;
+      *)
+        expected=0
+        content=${CONTENT//[[:space:]]}  # strip all whitespace
+        [[ "${ENTITY}" = ''                              &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = 'super-manifest'                &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = 'super-manifest version="2.0"'  &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = '/super-manifest'               &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = 'app-manifest'                  &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = '/app-manifest'                 &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = 'app-manifest-list'             &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = '/app-manifest-list'            &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = 'board-manifest'                &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = '/board-manifest'               &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = 'board-manifest-list'           &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = '/board-manifest-list'          &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = 'middleware-manifest'           &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = '/middleware-manifest'          &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = 'middleware-manifest-list'      &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = '/middleware-manifest-list'     &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = '/uri'                          &&  "${content}" = "" ]]  && expected=1
+        if [[ ${expected} -eq 0 ]]; then
+          echo "FATAL ERROR: unexpected data:"
+          echo "    [${ENTITY}] => [${CONTENT}]"
+          echo "  in supermanifest file: ${uri_super_manifest}"
+	  echo ""
+          g_failed=1
+        fi
+        ;;
+    esac
+  done < <(curl -s -S -L ${uri_super_manifest})
+
+  if [[ ${g_failed} -ne 0 ]]; then
+    echo "FATAL ERROR: cannot continue, processing the super-manifest file failed!"
+    exit 5
+  fi
+
+  #
+  ## when processing the "super-manifest" tree,
+  ## ensure that the 'out/asset_cache.txt' file (for the dependency manifests)
+  ## has been cleared
+  rm -f     out/asset_cache.txt
+  mkdir -p  out
+else
+  # Process the specified manifest files
+  ## prepend "ordering characters" ([123],) so that "manifest_files" can be sorted;
+  ##   need to process 'dependency' manifests last
+  for (( i=0; i<${#manifest_files[@]}; i++ )); do
+    detect_type g_manifest_type ${manifest_files[$i]}
+    case "${g_manifest_type}" in
+      "super")
+        manifest_files[$i]="1,"${manifest_files[$i]}
+        ;;
+      "dependency")
+        manifest_files[$i]="3,"${manifest_files[$i]}
+        ;;
+      *)
+        manifest_files[$i]="2,"${manifest_files[$i]}
+        ;;
+    esac
+  done
+  #
+  ## when processing a single manifest file,
+  ## allow the 'out/asset_cache.txt' file (for the dependency manifests)
+  ## from a previous run (or manually seeded) to be used
+  mkdir -p  out
+fi
+
+# order the manifest files; need to process 'dependency' manifests last
+manifest_files=($(for x in ${manifest_files[@]}; do echo $x; done | sort))
+
+# process the manifest file(s)
+for x in ${manifest_files[@]}; do
+  ((++num_found))
+  y=${x#?,}  # strip the ordering characters
+  echo -e "\n\n### Process: ${y}"
+  z=${y#https://github.com/}
+  if [[ ! -e ${z} ]]; then
+    mkdir -p ${z%/*}
+    set -x
+    curl -s -S -L ${y} -o ${z}
+    { ${restore_xtrace}; } 2>/dev/null
+  fi
+  manifest_file=${z}
+  [[ ${f_flags} -eq 0 || ${f_syntax} -eq 1 ]] && test_syntax
+  [[ ${f_flags} -eq 0 || ${f_format} -eq 1 ]] && test_format
+  [[ ${f_flags} -eq 0 || ${f_schema} -eq 1 ]] && test_schema
+  [[ ${f_flags} -eq 0 || ${f_assets} -eq 1 ]] && test_assets
+  ## test_rules
+done
+
+#if [[ -f out/asset_cache.txt ]]; then
+#  echo "+ cat -n out/asset_cache.txt"
+#          cat -n out/asset_cache.txt
+#fi
+
+[[ ${num_found} -gt 1 ]] && echo -e "\n\n... processed ${num_found} manifest files"
+[[ ${g_failed} -ne 0 ]] && { echo -e "\n\nFATAL ERROR: one or more tests failed!"; exit 6; }
+
+exit 0
+
+## EOF
