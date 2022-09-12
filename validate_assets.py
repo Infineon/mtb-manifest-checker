@@ -544,7 +544,8 @@ def main():
         sys.exit(1)
 
     # save the ASSET CACHE
-    with open("out/asset_cache.txt", 'w') as f:
+    with open("out/asset_cache.txt", 'w', newline='') as f:
+        # override os.linesep; do not generate '\r'
         for key, value in ASSET_CACHE.items():
             f.write('%s %s\n' % (key, value))
 

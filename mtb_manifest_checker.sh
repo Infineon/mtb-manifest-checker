@@ -133,19 +133,26 @@ function requires_xmllint()
 
 function requires_python3()
 {
-  found=$(which python3) || :
+  PYTHON3=python3
+  major_version=$(python --version 2>&1 | tr -d '[a-zA-Z ]*' | cut -d '.' -f1)
+  # use 'python' if it is version 3.x.x or above
+  [[ ${major_version} -ge 3 ]] && PYTHON3=python
+
+  found=$(which ${PYTHON3}) || :
   if [[ -z ${found} ]]; then
     echo "FATAL ERROR: 'python3' is required!"
     echo " ... perhaps: sudo apt install python3"
     exit 4
   fi
+
+  printf "\n[info] using '%s' (%s) at [%s]\n\n" ${PYTHON3} $(${PYTHON3} --version 2>&1 | tr -d '[a-zA-Z ]*') $(which ${PYTHON3})
 }
 
 function requires_python3_module()
 {
   module=$1
   set +e
-  python3 -c "import ${module}" 2>/dev/null
+  ${PYTHON3} -c "import ${module}" 2>/dev/null
   rc=$?
   ${restore_errexit}
   if [[ ${rc} -ne 0 ]]; then
@@ -235,7 +242,7 @@ function test_format()
   [[ $(head -1 $x) != "$s"* ]] && sed -i -e "1d" out/$y
   #
   ## handle blank lines
-  python3 -u ${top_dir}/format_xml.py $x out/${y}
+  ${PYTHON3} -u ${top_dir}/format_xml.py $x out/${y}
   #
   ## convert from hex to decimal
   sed -i -e 's,\&#x2122,\&#8482,g'  out/$y
@@ -278,8 +285,8 @@ function test_schema()
 
   if [[ ! -z ${g_manifest_type} ]]; then
     set +e
-    echo -e "+ python3 -u ${top_dir}/validate_schema.py ${g_manifest_type} ${manifest_file}"
-               python3 -u ${top_dir}/validate_schema.py ${g_manifest_type} ${manifest_file}
+    echo -e "+ ${PYTHON3} -u ${top_dir}/validate_schema.py ${g_manifest_type} ${manifest_file}"
+               ${PYTHON3} -u ${top_dir}/validate_schema.py ${g_manifest_type} ${manifest_file}
     rc=$?
     ${restore_errexit}
     echo ""
@@ -305,8 +312,8 @@ function test_assets()
     rm -rf   out/${y}
     mkdir -p out
     set +e
-    echo -e "+ python3 -u ${top_dir}/validate_assets.py ${g_manifest_type} ${x} out/${y}"
-               python3 -u ${top_dir}/validate_assets.py ${g_manifest_type} ${x} out/${y}
+    echo -e "+ ${PYTHON3} -u ${top_dir}/validate_assets.py ${g_manifest_type} ${x} out/${y}"
+               ${PYTHON3} -u ${top_dir}/validate_assets.py ${g_manifest_type} ${x} out/${y}
     rc=$?
     ${restore_errexit}
     echo ""

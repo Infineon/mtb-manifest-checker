@@ -33,10 +33,10 @@ Perform the "syntax" tests only on a specified set of local manifest files , by 
     - if multiple manifest files are specified, then all manifest files will be processed in the appropriate order.
 
 ### Requirements
-- tools
+- Tools
     - xmllint
-    - python3
-- python modules (see: 'requirements.txt')
+    - Python 3
+- Python 3 modules (see: 'requirements.txt')
     - lxml
     - requests
 

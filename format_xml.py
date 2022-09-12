@@ -78,6 +78,7 @@ for i in range(max_lines):
         idx1 += 1
         idx2 += 1
 
-with open(file2, 'w') as file:
+with open(file2, 'w', newline='') as file:
+    # override os.linesep; do not generate '\r'
     for x in output:
         file.write(x)
