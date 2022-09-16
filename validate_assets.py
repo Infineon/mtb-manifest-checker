@@ -36,6 +36,7 @@ import os
 import re
 import requests
 import shutil
+import stat
 import subprocess
 import sys
 from contextlib import contextmanager
@@ -182,6 +183,14 @@ def git_bare_repo_check(git_repo, git_ref):
     if not os.path.exists(cwd + "/tmp"):
         os.mkdir(cwd + "/tmp")
     if os.path.isdir(tmp_dir):
+        # ensure "o+w" so that this can be deleted
+        for root, dirs, files in os.walk(tmp_dir):
+            for d in dirs:
+                mode=os.stat(os.path.join(root, d)).st_mode
+                os.chmod(os.path.join(root, d), (mode | stat.S_IWUSR))
+            for f in files:
+                mode=os.stat(os.path.join(root, f)).st_mode
+                os.chmod(os.path.join(root, f), (mode | stat.S_IWUSR))
         shutil.rmtree(tmp_dir)
     os.mkdir(tmp_dir)
     os.chdir(tmp_dir)
@@ -207,6 +216,14 @@ def git_bare_repo_check(git_repo, git_ref):
 
     os.chdir(cwd)
     if os.path.isdir(tmp_dir):
+        # ensure "o+w" so that this can be deleted
+        for root, dirs, files in os.walk(tmp_dir):
+            for d in dirs:
+                mode=os.stat(os.path.join(root, d)).st_mode
+                os.chmod(os.path.join(root, d), (mode | stat.S_IWUSR))
+            for f in files:
+                mode=os.stat(os.path.join(root, f)).st_mode
+                os.chmod(os.path.join(root, f), (mode | stat.S_IWUSR))
         shutil.rmtree(tmp_dir)
 
     # add this git_ref to the cache

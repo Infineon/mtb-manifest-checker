@@ -134,7 +134,7 @@ function requires_xmllint()
 function requires_python3()
 {
   PYTHON3=python3
-  major_version=$(python --version 2>&1 | tr -d '[a-zA-Z ]*' | cut -d '.' -f1)
+  major_version=$(which python >/dev/null 2>&1 && python --version 2>&1 | tr -d '[a-zA-Z ]*' | cut -d '.' -f1)
   # use 'python' if it is version 3.x.x or above
   [[ ${major_version} -ge 3 ]] && PYTHON3=python
 
@@ -362,21 +362,27 @@ if [[ ${#manifest_files[@]} -eq 0 ]]; then
   ## prepend "ordering characters" ([123],) so that "manifest_files" can be sorted;
   ##   need to process 'dependency' manifests last
   manifest_files+=("1,"${uri_super_manifest})
+  rm -rf ${uri_super_manifest#https://github.com/}
   while read_xml; do
     case "${ENTITY}" in
       "uri")
-        x=("${CONTENT//[[:space:]]}")  # strip all whitespace
+        x="${CONTENT//[[:space:]]}"  # strip all whitespace
         manifest_files+=("2,"${x})
+        rm -rf ${x#https://github.com/}
         ;;
       "board-manifest dependency-url="*)
         x=$(echo "${ENTITY}" | sed -e "s,^.*board-manifest dependency-url=\(.*\)$,\1,")
-        y=("${x//[[:space:]]}")         # strip all whitespace
-        manifest_files+=("3,"${y//\"})  # strip all double-quote characters
+        y="${x//[[:space:]]}"        # strip all whitespace
+        z=${y//\"}                   # strip all double-quote characters
+        manifest_files+=("3,"${z})
+        rm -rf ${z#https://github.com/}
         ;;
       "middleware-manifest dependency-url="*)
         x=$(echo "${ENTITY}" | sed -e "s,^.*middleware-manifest dependency-url=\(.*\)$,\1,")
-        y=("${x//[[:space:]]}")          # strip all whitespace
-        manifest_files+=("3,"${y//\"})  # strip all double-quote characters
+        y="${x//[[:space:]]}"        # strip all whitespace
+        z=${y//\"}                   # strip all double-quote characters
+        manifest_files+=("3,"${z})
+        rm -rf ${z#https://github.com/}
         ;;
       *)
         expected=0
