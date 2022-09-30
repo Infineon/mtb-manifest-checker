@@ -77,7 +77,7 @@
 
   <xs:simpleType name="validMiddlewareType">
     <xs:restriction base="xs:string">
-      <xs:pattern value="(device_data)"/>
+      <xs:pattern value="(device_data|device_support)"/>
     </xs:restriction>
   </xs:simpleType>
 
