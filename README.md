@@ -14,11 +14,11 @@ Perform all tests in the suite, except the "format" tests, by running:<br>
 Perform the "format" tests only, by running:<br>
 `    ./mtb_manifest_checker.sh --format    `
 
-Perform the "syntax" tests only on a specified set of local manifest files , by running:<br>
+Perform the "syntax" tests only on a specified set of local manifest files, by running:<br>
 `    ./mtb_manifest_checker.sh --syntax apps/*.xml bsp/*.xml mw/*.xml    `
 
 ### Syntax
-`    mtb-manifest_checker.sh [--syntax] [--format] [--schema] [--assets] [ <uri_of_super-manifest_file> | [ <pathname_of_manifest_file> ... ]    `<br>
+`    mtb-manifest_checker.sh [--syntax] [--format] [--schema] [--assets] [ <uri_of_super-manifest_file> | <pathname_of_manifest_file> [...] ]    `<br>
 - where:
     - "--syntax" is the Syntax Checker (details at 'documentation/syntax.md')
     - "--format" is the Format Checker (details at 'documentation/format.md')

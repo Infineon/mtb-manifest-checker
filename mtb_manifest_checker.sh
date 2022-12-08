@@ -47,6 +47,46 @@ SKIP_ASSETS_FORMATTING_TEST=1
 # default super-manifest
 uri_super_manifest=https://github.com/Infineon/mtb-super-manifest/raw/v2.X/mtb-super-manifest-fv2.xml
 
+legal_category_app=(
+"Bluetooth&#174;"
+"Community Code Examples"
+"Getting Started"
+"Graphics"
+"Machine Learning"
+"Manufacturing"
+"Motor Control"
+"Peripherals"
+"Sensing"
+"Voice"
+"Wi-Fi"
+)
+
+legal_category_bsp=(
+"AIROC&#8482; Bluetooth&#174; BSPs"
+"AIROC&#8482; Connectivity BSPs"
+"iMOTION&#8482; BSPs"
+"MOTIX&#8482; BSPs"
+"PMG BSPs"
+"PSoC&#8482; 4 BSPs"
+"PSoC&#8482; 6 BSPs"
+"TRAVEO&#8482; BSPs"
+"USB BSPs"
+"Wireless Charging BSPs"
+"XMC&#8482; BSPs"
+)
+
+legal_category_mw=(
+"Bluetooth&#174;"
+"Connectivity"
+"Core"
+"Ethernet"
+"Middleware"
+"Motor Control"
+"Peripheral"
+"Utilities"
+"Wi-Fi"
+)
+
 g_manifest_type=""
 g_failed=0
 
@@ -197,6 +237,68 @@ function detect_type()
   return 0
 }
 
+function validate_category()
+{
+  g_manifest_type=$1
+  manifest_file=$2
+# echo -e "+ grep \"<category>.*</category>\" ${manifest_file}"
+#            grep  "<category>.*</category>"  ${manifest_file} || :
+  #
+  legal_values=()
+  case "${g_manifest_type}" in
+    "app")
+      legal_values=("${legal_category_app[@]}")
+      ;;
+    "board")
+      legal_values=("${legal_category_bsp[@]}")
+      ;;
+    "dependency")
+      # no "category" element to process
+      ;;
+    "middleware")
+      legal_values=("${legal_category_mw[@]}")
+      ;;
+    "super")
+      # no "category" element to process
+      ;;
+    *)
+      echo -e "\nFATAL ERROR: unknown manifest type: ${g_manifest_type}\n"
+      g_failed=1
+      ;;
+  esac
+  #
+  failed=0
+  is_partner=$(echo "${manifest_file}" | grep -v -i "^Infineon/" | wc -l)
+  msg_prefix="FATAL ERROR"
+  [[ ${is_partner} -ne 0 ]] && msg_prefix="Warning"
+  ## readarray is not available pre Bash-4
+  #readarray -t output < <(grep "<category>.*</category>" ${manifest_file})
+  output=()
+  while read line; do output+=("${line}"); done < <(grep "<category>.*</category>" ${manifest_file})
+  ##
+  for x in "${output[@]}"; do
+    for y in "${legal_values[@]}"; do
+      match=$(echo "${x}" | grep "^ *<category>${y}</category>$" | wc -l)
+      [[ ${match} -ne 0 ]] && break
+    done
+    if [[ ${match} -eq 0 ]]; then
+      echo -e "${msg_prefix}: unknown category: ${x}"
+      failed=1
+    fi
+  done
+  #
+  if [[ ${failed} -eq 0 ]]; then
+    echo "passed 'validate_category' check"
+  else
+    echo -e "\nnote: pre-defined categories (for \"${g_manifest_type}\" type manifest files) are:"
+    for y in "${legal_values[@]}"; do
+      echo "    ${y}"
+    done
+    [[ ${is_partner} -eq 0 ]] && g_failed=1
+  fi
+  echo ""
+}
+
 function test_syntax()
 {
   echo -e "\n\n########## test syntax ##########"
@@ -291,6 +393,8 @@ function test_schema()
     ${restore_errexit}
     echo ""
     [[ ${rc} -ne 0 ]] && { echo "FATAL ERROR: '${manifest_file}' failed validation!"; g_failed=1; }
+    echo -e "+ validate_category ${g_manifest_type} ${manifest_file}"
+               validate_category ${g_manifest_type} ${manifest_file}
   else
     g_failed=1
   fi

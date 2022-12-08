@@ -198,7 +198,7 @@ def git_bare_repo_check(git_repo, git_ref):
     ## clone the bare repo
     try:
         print("++ ", end='')
-        output = exec('git', 'clone', '--mirror', git_baseuri + "/" + git_reponame)
+        output = exec('git', 'clone', '--no-progress', '--mirror', git_baseuri + "/" + git_reponame)
     except:
         print("FATAL ERROR: cannot clone '{}'".format(git_baseuri + "/" + git_reponame))
         print(output)
