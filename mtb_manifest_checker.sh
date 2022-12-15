@@ -50,6 +50,7 @@ uri_super_manifest=https://github.com/Infineon/mtb-super-manifest/raw/v2.X/mtb-s
 legal_category_app=(
 "Bluetooth&#174;"
 "Community Code Examples"
+"Connectivity"
 "Getting Started"
 "Graphics"
 "Machine Learning"
