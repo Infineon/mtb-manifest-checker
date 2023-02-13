@@ -588,6 +588,8 @@ done
 [[ ${num_found} -gt 1 ]] && echo -e "\n\n... processed ${num_found} manifest files"
 [[ ${g_failed} -ne 0 ]] && { echo -e "\n\nFATAL ERROR: one or more tests failed!"; exit 6; }
 
+echo -e "\nSUCCESS: all tests passed!"
+
 exit 0
 
 ## EOF
