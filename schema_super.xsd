@@ -80,6 +80,7 @@
                     <xs:element name="uri" type="validURI" maxOccurs="1" minOccurs="1"/>
                   </xs:sequence>
                   <xs:attribute name="dependency-url" type="validURI" use="optional"/>
+                  <xs:attribute name="capability-url" type="validURI" use="optional"/>
                 </xs:complexType>
               </xs:element>
             </xs:sequence>

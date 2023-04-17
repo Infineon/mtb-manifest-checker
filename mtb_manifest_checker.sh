@@ -454,6 +454,64 @@ function test_assets()
   echo -e "####################"
 }
 
+function test_syntax_json()
+{
+  echo -e "\n\n########## test syntax json ##########"
+  requires_python3
+
+  set +e
+  echo -e "+ ${PYTHON3} -u ${top_dir}/validate_json.py --syntax ${json_file}"
+             ${PYTHON3} -u ${top_dir}/validate_json.py --syntax ${json_file}
+  rc=$?
+  ${restore_errexit}
+  echo ""
+  if [[ ${rc} -eq 0 ]]; then
+    echo ""
+    echo "JSON file: ${json_file}"
+    echo "passed syntax validation"
+    echo ""
+  else
+    echo "FATAL ERROR: '${json_file}' failed validation!"
+    g_failed=1
+  fi
+  echo -e "####################"
+}
+
+function test_format_json()
+{
+  echo -e "\n\n########## test format json ##########"
+  requires_python3
+
+  x=${json_file}
+  y=${x##*/}
+  rm -rf   out/${y}
+  mkdir -p out
+
+  set +e
+  echo -e "+ ${PYTHON3} -u ${top_dir}/validate_json.py --format ${json_file} out/${y}"
+             ${PYTHON3} -u ${top_dir}/validate_json.py --format ${json_file} out/${y}
+  rc=$?
+  ${restore_errexit}
+  echo ""
+  if [[ ${rc} -ne 0 ]]; then
+    ## diff the original and the generated file
+    echo -e "FATAL ERROR: formatting error(s)...\n"
+    echo "+ diff ${json_file} out/${y}"
+            diff ${json_file} out/${y} || :
+    g_failed=1
+    echo ""
+    echo "JSON file: ${json_file}"
+    echo "failed format validation"
+    echo ""
+  else
+    echo ""
+    echo "JSON file: ${json_file}"
+    echo "passed format validation"
+    echo ""
+  fi
+  echo -e "####################"
+}
+
 function test_rules()
 {
   echo -e "\n\n########## test rules ##########"
@@ -464,8 +522,8 @@ function test_rules()
 ## main
 
 if [[ ${#manifest_files[@]} -eq 0 ]]; then
-  # Process the 'super-manifest' file and detect all manifest files
-  ## prepend "ordering characters" ([123],) so that "manifest_files" can be sorted;
+  # Process the 'super-manifest' file and detect all manifest files (and json files)
+  ## prepend "ordering characters" ([1234],) so that "manifest_files" can be sorted;
   ##   need to process 'dependency' manifests last
   manifest_files+=("1,"${uri_super_manifest})
   rm -rf ${uri_super_manifest#https://github.com/}
@@ -476,12 +534,23 @@ if [[ ${#manifest_files[@]} -eq 0 ]]; then
         manifest_files+=("2,"${x})
         rm -rf ${x#https://github.com/}
         ;;
-      "board-manifest dependency-url="*)
-        x=$(echo "${ENTITY}" | sed -e "s,^.*board-manifest dependency-url=\(.*\)$,\1,")
-        y="${x//[[:space:]]}"        # strip all whitespace
-        z=${y//\"}                   # strip all double-quote characters
-        manifest_files+=("3,"${z})
-        rm -rf ${z#https://github.com/}
+      "board-manifest "*)
+        # find optional "dependency-url"
+        if [[ ${ENTITY} = *" dependency-url="* ]]; then
+          x=$(echo "${ENTITY}" | sed -e "s,^.* dependency-url=\([^ ]*\).*$,\1,")
+          y="${x//[[:space:]]}"        # strip all whitespace
+          z=${y//\"}                   # strip all double-quote characters
+          manifest_files+=("4,"${z})
+          rm -rf ${z#https://github.com/}
+        fi
+        # find optional "capability-url"
+        if [[ ${ENTITY} = *" capability-url="* ]]; then
+          x=$(echo "${ENTITY}" | sed -e "s,^.* capability-url=\([^ ]*\).*$,\1,")
+          y="${x//[[:space:]]}"        # strip all whitespace
+          z=${y//\"}                   # strip all double-quote characters
+          manifest_files+=("3,"${z})
+          rm -rf ${z#https://github.com/}
+        fi
         ;;
       "middleware-manifest dependency-url="*)
         x=$(echo "${ENTITY}" | sed -e "s,^.*middleware-manifest dependency-url=\(.*\)$,\1,")
@@ -572,11 +641,17 @@ for x in ${manifest_files[@]}; do
     curl -s -S -L ${y} -o ${z}
     { ${restore_xtrace}; } 2>/dev/null
   fi
-  manifest_file=${z}
-  [[ ${f_flags} -eq 0 || ${f_syntax} -eq 1 ]] && test_syntax
-  [[ ${f_flags} -eq 0 || ${f_format} -eq 1 ]] && test_format
-  [[ ${f_flags} -eq 0 || ${f_schema} -eq 1 ]] && test_schema
-  [[ ${f_flags} -eq 0 || ${f_assets} -eq 1 ]] && test_assets
+  if [[ ${z} = *".json" ]]; then
+    json_file=${z}
+    [[ ${f_flags} -eq 0 || ${f_syntax} -eq 1 ]] && test_syntax_json
+    [[ ${f_flags} -eq 0 || ${f_format} -eq 1 ]] && test_format_json
+  else
+    manifest_file=${z}
+    [[ ${f_flags} -eq 0 || ${f_syntax} -eq 1 ]] && test_syntax
+    [[ ${f_flags} -eq 0 || ${f_format} -eq 1 ]] && test_format
+    [[ ${f_flags} -eq 0 || ${f_schema} -eq 1 ]] && test_schema
+    [[ ${f_flags} -eq 0 || ${f_assets} -eq 1 ]] && test_assets
+  fi
   ## test_rules
 done
 

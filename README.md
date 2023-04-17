@@ -48,4 +48,4 @@ Perform the "syntax" tests only on a specified set of local manifest files, by r
     - tested on "macOS Big Sur 11.6.5"
     - tested on "macOS Monterey 12.3"
 - Windows
-    - tested on "cygwin (CYGWIN_NT-10.0-19042 version 3.1.6-340.x86_64)"
+    - tested on "cygwin  CYGWIN_NT-10.0-19044 version 3.4.5-1.x86_64)"
