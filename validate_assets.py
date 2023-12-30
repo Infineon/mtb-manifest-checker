@@ -280,6 +280,10 @@ def process_super_element(super_element):
     git_ref = git_raw_match.group(5)
     git_filename = git_raw_match.group(6)
 
+    if "/" in git_filename:
+        print("FATAL ERROR: invalid 'ref' detected in the Git raw URI: {}".format(git_raw))
+        return False # code_0229
+
     # check if the git_ref is valid (branch/tag/commit)
     response = git_reference_check(git_repo, git_ref)
     if not response:
@@ -307,6 +311,10 @@ def process_super_element(super_element):
         git_dep_reponame = git_raw_dep_match.group(4)
         git_dep_ref = git_raw_dep_match.group(5)
         git_dep_filename = git_raw_dep_match.group(6)
+
+        if "/" in git_dep_filename:
+            print("FATAL ERROR: invalid 'ref' detected in the Git dep URI: {}".format(git_raw))
+            return False # code_0228
 
         # check if the git_dep_ref is valid (branch/tag/commit)
         response = git_reference_check(git_dep_repo, git_dep_ref)

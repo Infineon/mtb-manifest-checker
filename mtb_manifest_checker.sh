@@ -67,6 +67,7 @@ legal_category_bsp=(
 "AIROC&#8482; Connectivity BSPs"
 "iMOTION&#8482; BSPs"
 "MOTIX&#8482; BSPs"
+"PAG2S BSPs"
 "PMG BSPs"
 "PSoC&#8482; 4 BSPs"
 "PSoC&#8482; 6 BSPs"
@@ -98,6 +99,7 @@ f_schema=0
 f_assets=0
 f_rules=0
 f_flags=0
+f_custom=0
 manifest_files=()
 manifest_uri=""
 # parse command line args
@@ -122,6 +124,9 @@ while (( $# > 0 )); do
     "--rules")
       f_rules=1
       f_flags=1
+      ;;
+    "--custom")
+      f_custom=1
       ;;
     "--"*)
       echo "FATAL ERROR: unknown argument $1"
@@ -394,7 +399,7 @@ function test_schema()
     rc=$?
     ${restore_errexit}
     echo ""
-    [[ ${rc} -ne 0 ]] && { echo "FATAL ERROR: '${manifest_file}' failed validation!"; g_failed=1; }
+    [[ ${rc} -ne 0 ]] && { echo "FATAL ERROR: '${manifest_file}' failed schema validation!"; g_failed=1; }
     echo -e "+ validate_category ${g_manifest_type} ${manifest_file}"
                validate_category ${g_manifest_type} ${manifest_file}
   else
@@ -471,7 +476,7 @@ function test_syntax_json()
     echo "passed syntax validation"
     echo ""
   else
-    echo "FATAL ERROR: '${json_file}' failed validation!"
+    echo "FATAL ERROR: '${json_file}' failed syntax validation!"
     g_failed=1
   fi
   echo -e "####################"
@@ -582,7 +587,7 @@ if [[ ${#manifest_files[@]} -eq 0 ]]; then
         if [[ ${expected} -eq 0 ]]; then
           echo "FATAL ERROR: unexpected data:"
           echo "    [${ENTITY}] => [${CONTENT}]"
-          echo "  in supermanifest file: ${uri_super_manifest}"
+          echo "  in super-manifest file: ${uri_super_manifest}"
 	  echo ""
           g_failed=1
         fi
@@ -598,8 +603,8 @@ if [[ ${#manifest_files[@]} -eq 0 ]]; then
   #
   ## when processing the "super-manifest" tree,
   ## ensure that the 'out/asset_cache.txt' file (for the dependency manifests)
-  ## has been cleared
-  rm -f     out/asset_cache.txt
+  ## has been cleared (unless this is a "custom super-manifest")
+  [[ ${f_custom} -eq 0 ]] && rm -f out/asset_cache.txt
   mkdir -p  out
 else
   # Process the specified manifest files
