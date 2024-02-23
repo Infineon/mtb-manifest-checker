@@ -1,6 +1,6 @@
 #!/bin/bash
 ##########
-# Copyright 2022-2023, Cypress Semiconductor Corporation (an Infineon company) or
+# Copyright 2022-2024, Cypress Semiconductor Corporation (an Infineon company) or
 # an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
 #
 # This software, including source code, documentation and related
@@ -57,6 +57,7 @@ legal_category_app=(
 "Manufacturing"
 "Motor Control"
 "Peripherals"
+"Security"
 "Sensing"
 "Voice"
 "Wi-Fi"
@@ -65,9 +66,9 @@ legal_category_app=(
 legal_category_bsp=(
 "AIROC&#8482; Bluetooth&#174; BSPs"
 "AIROC&#8482; Connectivity BSPs"
+"CCG BSPs"
 "iMOTION&#8482; BSPs"
 "MOTIX&#8482; BSPs"
-"PAG2S BSPs"
 "PMG BSPs"
 "PSoC&#8482; 4 BSPs"
 "PSoC&#8482; 6 BSPs"
@@ -82,6 +83,7 @@ legal_category_mw=(
 "Connectivity"
 "Core"
 "Ethernet"
+"Graphics"
 "Middleware"
 "Motor Control"
 "Peripheral"
