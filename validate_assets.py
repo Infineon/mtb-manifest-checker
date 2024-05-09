@@ -360,6 +360,7 @@ def process_element(xml_element, uri_element_name):
     if versions_element is not None:
 
         # iterate over <version> elements
+        commit_list = []
         for version_element in versions_element.findall('version'):
 
             # process the <commit> content
@@ -369,6 +370,11 @@ def process_element(xml_element, uri_element_name):
             if not response:
                 print("FATAL ERROR: {} reference doesn't exist at {}".format(commit, git_repo))
                 return False
+            if commit in commit_list:
+                print("FATAL ERROR: duplicate reference {} in {}".format(commit, git_repo))
+                return False
+            else:
+                commit_list.append( commit )
 
     return True
 
@@ -479,6 +485,7 @@ def process_dependency_manifest(input_manifest, output_manifest):
             versions_element = depender_element.find('versions')
 
             # iterate over <version> elements
+            depender_list = []
             for version_element in versions_element.findall('version'):
 
                 # process the <commit> content
@@ -488,6 +495,11 @@ def process_dependency_manifest(input_manifest, output_manifest):
                 if not response:
                     print("FATAL ERROR: {} reference doesn't exist at {}".format(depender_commit, depender_repo))
                     return False
+                if depender_commit in depender_list:
+                    print("FATAL ERROR: duplicate reference {} in {}".format(depender_commit, depender_repo))
+                    return False
+                else:
+                    depender_list.append( depender_commit )
 
                 # get the <dependees> element
                 dependees_element = version_element.find('dependees')
