@@ -46,13 +46,14 @@
            version="2.1">
 
   <!-- URI constraints
-       - starts with "https://github.com/" or is
-             "https://git.savannah.nongnu.org/git/lwip"
+       - starts with "https://github.com/" or
+         starts with "techpack:<key>/ or is
+         "https://git.savannah.nongnu.org/git/lwip"
        - w/o whitespaces
   -->
   <xs:simpleType name="validURI">
     <xs:restriction base="xs:string">
-      <xs:pattern value="(https://github.com/\S+|https://git.savannah.nongnu.org/git/lwip)"/>
+      <xs:pattern value="(https://github.com/\S+|techpack:[0123456789abcdef-]+/\S+|https://git.savannah.nongnu.org/git/lwip)"/>
     </xs:restriction>
   </xs:simpleType>
 
@@ -113,7 +114,7 @@
 
   <xs:simpleType name="validToolsVersion">
     <xs:restriction base="xs:string">
-      <xs:pattern value="([\d]+.[\d]+.[\d]+)?"/>
+      <xs:pattern value="([\d]+.[\d]+(.[\d]+)?)?"/>
     </xs:restriction>
   </xs:simpleType>
 

@@ -341,6 +341,10 @@ def process_element(xml_element, uri_element_name):
     uri_element = xml_element.find(uri_element_name)
     git_repo = uri_element.text
 
+    if git_repo.startswith('techpack:'):
+        print("\n[INFO] skip validation of \"placeholder manifest entries\": {}".format(git_repo))
+        return True
+
     print("\nValidate manifest [<id> <{}>]: {} {}".format(uri_element_name, asset_id, git_repo))
     # save data for "dependency" manifest processing
     global ASSET_CACHE
