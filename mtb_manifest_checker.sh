@@ -41,7 +41,7 @@ export PYTHONUNBUFFERED=1
 
 top_dir=${0%/*}
 
-# define to skip formatiing in "test_assets"; use "test_format" instead
+# define to skip formatting in "test_assets"; use "test_format" instead
 SKIP_ASSETS_FORMATTING_TEST=1
 
 # default super-manifest

@@ -42,10 +42,11 @@ Perform the "syntax" tests only on a specified set of local manifest files, by r
 
 ### Supported Environments
 - Linux
-    - tested on "Ubuntu 20.04.5 LTS"
+    - tested on "Ubuntu 20.04.6 LTS"
 - Mac
     - tested on "macOS Catalina 10.15.7"
     - tested on "macOS Big Sur 11.6.5"
     - tested on "macOS Monterey 12.3"
+    - tested on "macOS Ventura 13.5"
 - Windows
-    - tested on "cygwin  CYGWIN_NT-10.0-19044 version 3.4.5-1.x86_64)"
+    - tested on "cygwin (CYGWIN_NT-10.0-19045 version 3.4.5-1.x86_64)"

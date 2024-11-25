@@ -89,8 +89,12 @@ def http_check(url):
     """
     global HTTP_CACHE
     if not url in HTTP_CACHE:
-        response = requests.get(url, allow_redirects=True)
-        HTTP_CACHE[url] = response
+        try:
+            response = requests.get(url, allow_redirects=True)
+            HTTP_CACHE[url] = response
+        except Exception as e:
+            print("FATAL ERROR: http-check() exception is: {}".format(e))
+            return False
     else:
         response = HTTP_CACHE.get(url)
     # Accept HTTP codes < 400: 200, 301 or 302 redirects
@@ -120,8 +124,8 @@ def git_reference_check(git_repo, git_ref):
         try:
             print("++ ", end='')
             git_ls_remote_output = exec('git', 'ls-remote', git_repo)
-        except:
-            print("FATAL ERROR: cannot access '{}'".format(git_repo))
+        except Exception as e:
+            print("FATAL ERROR: cannot access '{}' exception is: {}".format(git_repo, e))
         if git_ls_remote_output:
             LS_REMOTE_CACHE[git_repo] = git_ls_remote_output
     else:
@@ -153,9 +157,11 @@ def git_reference_check(git_repo, git_ref):
 
     # if not found, perform a check in the bare repo
     output = git_bare_repo_check(git_repo, git_ref)
-    if output:
-        # dump output to stdout
-        print(output.rstrip())
+    if not output:
+        return False
+
+    # dump output to stdout
+    print(output.rstrip())
     return output
 
 
@@ -179,7 +185,7 @@ def git_bare_repo_check(git_repo, git_ref):
 
     ## prepare temp directory
     cwd = os.getcwd()
-    tmp_dir = cwd + "/tmp/" + git_reponame
+    tmp_dir = cwd + "/tmp/" + git_reponame + ".git"
     if not os.path.exists(cwd + "/tmp"):
         os.mkdir(cwd + "/tmp")
     if os.path.isdir(tmp_dir):
@@ -197,11 +203,15 @@ def git_bare_repo_check(git_repo, git_ref):
 
     ## clone the bare repo
     try:
+        __url = git_baseuri + "/" + git_reponame + ".git"
         print("++ ", end='')
-        output = exec('git', 'clone', '--no-progress', '--mirror', git_baseuri + "/" + git_reponame)
-    except:
-        print("FATAL ERROR: cannot clone '{}'".format(git_baseuri + "/" + git_reponame))
-        print(output)
+        exec('git', 'clone', '--no-progress', '--mirror', __url)
+    except Exception as e:
+        print("FATAL ERROR: cannot clone '{}' exception is: {}".format(__url, e))
+        return None
+
+    if not os.path.isdir(git_reponame + ".git"):
+        print("FATAL ERROR: cannot clone '{}'".format(__url))
         return None
 
     ## test for git_ref in the bare repo
@@ -209,9 +219,12 @@ def git_bare_repo_check(git_repo, git_ref):
     try:
         print("++ ", end='')
         output = exec('git', 'cat-file', '-t', git_ref)
-    except:
+    except Exception as e:
+        print("FATAL ERROR: cannot find '{}' in bare repo, exception is: {}".format(git_ref, e))
+        return None
+
+    if not output:
         print("FATAL ERROR: cannot find '{}' in bare repo".format(git_ref))
-        print(output)
         return None
 
     os.chdir(cwd)
@@ -245,7 +258,8 @@ def process_manifest(input_manifest, output_manifest):
     # Pass the manifest_element context to the caller
     yield manifest_element
     # Save the processed manifest to the output file
-    manifest_tree.write(output_manifest, pretty_print=True)
+    if os.path.exists(output_manifest):
+        manifest_tree.write(output_manifest, pretty_print=True)
 
 
 def process_super_element(super_element):
@@ -484,6 +498,9 @@ def process_dependency_manifest(input_manifest, output_manifest):
             # get depender repo from the ASSET_CACHE created when processing the BSP/application/middleware manifests
             depender_repo = ASSET_CACHE.get(depender_id)
             print("\nValidate dependency manifest [<depender> <id>=(uri)]: {} {}".format(depender_id, depender_repo))
+            if not depender_repo:
+                print("FATAL ERROR:   cannot process {}".format(depender_repo))
+                return False
 
             # get the <versions> element
             versions_element = depender_element.find('versions')
