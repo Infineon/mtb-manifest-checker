@@ -77,6 +77,7 @@ legal_category_bsp=(
 "PMG BSPs"
 "PSOC&#8482; 4 BSPs"
 "PSOC&#8482; 6 BSPs"
+"PSOC&#8482; Control BSPs"
 "Reference Design BSPs"
 "TRAVEO&#8482; BSPs"
 "USB BSPs"
