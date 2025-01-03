@@ -1,5 +1,5 @@
 """
-# Copyright 2022-2024, Cypress Semiconductor Corporation (an Infineon company) or
+# Copyright 2022-2025, Cypress Semiconductor Corporation (an Infineon company) or
 # an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
 #
 # This software, including source code, documentation and related
@@ -33,12 +33,14 @@
 
 import argparse
 import os
+import random
 import re
 import requests
 import shutil
 import stat
 import subprocess
 import sys
+import time
 from contextlib import contextmanager
 from lxml import etree
 
@@ -71,6 +73,9 @@ HTTP_CACHE = {}
 # Key: git remote URL, value: output of "git ls-remote <URL>" command
 LS_REMOTE_CACHE = {}
 
+# This database holds a cache of "bare repo" lookups
+# Key: git remote URL + "_" + git_ref, value: git_ref
+BARE_REPO_CACHE = {}
 
 def exec(*cmdline):
     """Execute command line, parse stdout, suppress stderr
@@ -118,42 +123,71 @@ def git_reference_check(git_repo, git_ref):
 
     global LS_REMOTE_CACHE
 
-    # perform a "git ls-remote" command
-    git_ls_remote_output = ""
-    if not git_repo in LS_REMOTE_CACHE:
-        try:
-            print("++ ", end='')
-            git_ls_remote_output = exec('git', 'ls-remote', git_repo)
-        except Exception as e:
-            print("FATAL ERROR: cannot access '{}' exception is: {}".format(git_repo, e))
-        if git_ls_remote_output:
-            LS_REMOTE_CACHE[git_repo] = git_ls_remote_output
-    else:
-        print("++ git ls-remote {} [cached]".format(git_repo))
-        git_ls_remote_output = LS_REMOTE_CACHE.get(git_repo)
+    retry_msg = ""
+    for retry in range(0,6):
+        if retry_msg:
+            retry_time = retry * random.randint(60, 90)
+            print("{} R E T R Y  in {} seconds".format(retry_msg, retry_time))
+            time.sleep(retry_time)
+            retry_msg = ""
 
-    # process the output of the "git ls-remote" command
-    output = ""
-    if git_ls_remote_output:
-        for line in git_ls_remote_output.splitlines():
-            m = re.match(r'^.*{}$'.format(git_ref), line) # match 'git_ref' at end of line
-            if m:
-                m1 = re.match(r'^[0-9a-f]*\trefs/heads/{}$'.format(git_ref), line)
-                if m1:
-                    # matched "refs/heads"
-                    output = line
-                m2 = re.match(r'^[0-9a-f]*\trefs/tags/{}$'.format(git_ref), line)
-                if m2:
-                    # matched "refs/tags"
-                    output = line
-                m3 = re.match(r'^[0-9a-f]*\t{}$'.format(git_ref), line)
-                if m3:
-                    # matched a commit hash
-                    output = line
-        if output:
-            # dump output to stdout
-            print(output)
-            return output
+        # perform a "git ls-remote" command
+        git_ls_remote_output = None
+        if not git_repo in LS_REMOTE_CACHE:
+            print("++ git ls-remote {}".format(git_repo))
+            try:
+                git_ls_remote_output = subprocess.run(['git', 'ls-remote', git_repo], capture_output=True, text=True)
+            except Exception as e:
+                print("FATAL ERROR: exception is: {}".format(e))
+        else:
+            print("++ git ls-remote {} [cached]".format(git_repo))
+            git_ls_remote_output = LS_REMOTE_CACHE.get(git_repo)
+
+        # retry on failure
+        if git_ls_remote_output is None:
+            retry_msg = "[INFO] unknown failure -"
+            continue  # attempt retry
+
+        # process the stderr of the "git ls-remote" command
+        if git_ls_remote_output.returncode != 0:
+            if git_ls_remote_output.stderr:
+                print(git_ls_remote_output.stderr)
+            for line in git_ls_remote_output.stderr.splitlines():
+                m = re.match(r'^.*{}$'.format("The requested URL returned error: 403"), line)
+                if m:
+                    # matched 'fatal: unable to access 'https://XXXX': The requested URL returned error: 403'
+                    retry_msg = "[INFO] received '403' response -"
+            if retry_msg:
+                continue  # attempt retry
+
+        # process the stdout of the "git ls-remote" command
+        output = None
+        if git_ls_remote_output.returncode == 0:
+            if git_ls_remote_output.stderr:
+                print(git_ls_remote_output.stderr)
+            for line in git_ls_remote_output.stdout.splitlines():
+                m = re.match(r'^.*{}$'.format(git_ref), line) # match 'git_ref' at end of line
+                if m:
+                    m1 = re.match(r'^[0-9a-f]*\trefs/heads/{}$'.format(git_ref), line)
+                    if m1:
+                        # matched "refs/heads"
+                        output = line
+                    m2 = re.match(r'^[0-9a-f]*\trefs/tags/{}$'.format(git_ref), line)
+                    if m2:
+                        # matched "refs/tags"
+                        output = line
+                    m3 = re.match(r'^[0-9a-f]*\t{}$'.format(git_ref), line)
+                    if m3:
+                        # matched a commit hash
+                        output = line
+            if output is not None:
+                if not git_repo in LS_REMOTE_CACHE:
+                    LS_REMOTE_CACHE[git_repo] = git_ls_remote_output
+                # dump output to stdout
+                print(output)
+                return output
+
+        break  # do not retry
 
     # if not found, perform a check in the bare repo
     output = git_bare_repo_check(git_repo, git_ref)
@@ -170,10 +204,14 @@ def git_bare_repo_check(git_repo, git_ref):
     :param git_repo: git repository URL
     :param git_ref: git object reference (commit)
     :return a line if the git_ref is found, None otherwise
-    For optimization purposes, add any 'git_ref' found in the bare repo to the LS_REMOTE_CACHE
+    For optimization purposes, add the 'git_ref' found in this bare repo to the BARE_REPO_CACHE
     """
 
-    global LS_REMOTE_CACHE
+    global BARE_REPO_CACHE
+
+    key="{}_{}".format(git_repo, git_ref)
+    if key in BARE_REPO_CACHE:
+        return "found '{}' in the bare repo [cached]".format(git_ref)
 
     # Parse the repository data
     git_repo_match = re.match(RE_GIT_REPO_URI, git_repo)
@@ -239,11 +277,8 @@ def git_bare_repo_check(git_repo, git_ref):
                 os.chmod(os.path.join(root, f), (mode | stat.S_IWUSR))
         shutil.rmtree(tmp_dir)
 
-    # add this git_ref to the cache
-    cached = LS_REMOTE_CACHE.get(git_repo)
-    LS_REMOTE_CACHE[git_repo] = "{}{}\t{}\n".format(cached, git_ref, git_ref)
-
-    return "found {} in the bare repo".format(git_ref)
+    BARE_REPO_CACHE[key] = git_ref
+    return "found '{}' in the bare repo".format(git_ref)
 
 
 @contextmanager

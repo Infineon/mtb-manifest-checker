@@ -1,6 +1,6 @@
 #!/bin/bash
 ##########
-# Copyright 2022-2024, Cypress Semiconductor Corporation (an Infineon company) or
+# Copyright 2022-2025, Cypress Semiconductor Corporation (an Infineon company) or
 # an affiliate of Cypress Semiconductor Corporation.  All rights reserved.
 #
 # This software, including source code, documentation and related
@@ -41,9 +41,6 @@ export PYTHONUNBUFFERED=1
 
 top_dir=${0%/*}
 
-# define to skip formatting in "test_assets"; use "test_format" instead
-SKIP_ASSETS_FORMATTING_TEST=1
-
 # default super-manifest
 uri_super_manifest=https://github.com/Infineon/mtb-super-manifest/raw/v2.X/mtb-super-manifest-fv2.xml
 
@@ -54,6 +51,7 @@ legal_category_app=(
 "Connectivity"
 "Getting Started"
 "Graphics"
+"Industrial Communication"
 "Machine Learning"
 "Manufacturing"
 "Motor Control"
@@ -446,22 +444,10 @@ function test_assets()
       echo "Failed asset validation"
       echo ""
     else
-      ## diff the original and the generated file
-      lines=$(diff $x out/$y | wc -l)
-      if [[ ${lines} -ne 0 && ${SKIP_ASSETS_FORMATTING_TEST} -eq 0 ]]; then
-        echo "FATAL ERROR: formatting error:"
-        diff $x out/$y || :
-        g_failed=1
-        echo ""
-        echo "Manifest: ${manifest_file}"
-        echo "failed asset validation"
-        echo ""
-      else
-        echo ""
-        echo "Manifest: ${manifest_file}"
-        echo "passed asset validation"
-        echo ""
-      fi
+      echo ""
+      echo "Manifest: ${manifest_file}"
+      echo "passed asset validation"
+      echo ""
     fi
   else
     g_failed=1
