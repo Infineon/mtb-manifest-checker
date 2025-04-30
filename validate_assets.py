@@ -93,20 +93,39 @@ def http_check(url):
     For optimization purposes, the HTTP requests are cached in HTTP_CACHE
     """
     global HTTP_CACHE
-    if not url in HTTP_CACHE:
-        try:
-            response = requests.get(url, allow_redirects=True)
+
+    retry_msg = ""
+    for retry in range(0,6):
+        if retry_msg:
+            retry_time = retry * random.randint(60, 90)
+            print("{} R E T R Y  in {} seconds".format(retry_msg, retry_time))
+            time.sleep(retry_time)
+            retry_msg = ""
+
+        if not url in HTTP_CACHE:
+            try:
+                response = requests.get(url, allow_redirects=True)
+            except Exception as e:
+                print("FATAL ERROR: http-check() exception is: {}".format(e))
+                return False
+        else:
+            response = HTTP_CACHE.get(url)
+            print("[INFO] [{}]: '{}' is accessible [cached] ".format(response.status_code, url))
+            return response.ok
+
+        # Accept HTTP codes < 400: 200, 301 or 302 redirects
+        if not response.ok:
+            if response.status_code == 429 or response.status_code == 403:
+                retry_msg = "[INFO] http response status: {} - ".format(response.status_code)
+                continue
+            else:
+                print("[INFO] [{}]: '{}' is not accessible".format(response.status_code, url))
+                break
+        else:
+            print("[INFO] [{}]: '{}' is accessible".format(response.status_code, url))
             HTTP_CACHE[url] = response
-        except Exception as e:
-            print("FATAL ERROR: http-check() exception is: {}".format(e))
-            return False
-    else:
-        response = HTTP_CACHE.get(url)
-    # Accept HTTP codes < 400: 200, 301 or 302 redirects
-    if not response.ok:
-        print("INFO: http response status: {}".format(response.status_code))
-    else:
-        print("INFO [{}]: '{}' is accessible".format(response.status_code, url))
+            break
+
     return response.ok
 
 
