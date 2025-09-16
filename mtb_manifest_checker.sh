@@ -45,6 +45,7 @@ top_dir=${0%/*}
 uri_super_manifest=https://github.com/Infineon/mtb-super-manifest/raw/v2.X/mtb-super-manifest-fv2.xml
 
 legal_category_app=(
+"Audio"
 "Battery Charging"
 "Bluetooth&#174;"
 "Community Code Examples"
@@ -61,7 +62,7 @@ legal_category_app=(
 "Sensing"
 "Solutions"
 "USB-C Power Delivery"
-"Voice"
+""
 "Wi-Fi"
 )
 
