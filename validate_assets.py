@@ -94,6 +94,13 @@ def http_check(url):
     """
     global HTTP_CACHE
 
+    url_insteadof = os.environ.get('URL_INSTEADOF', "")
+    if url_insteadof:
+        _src = re.sub(r'^.*\.insteadOf ', '', url_insteadof.rstrip())
+        _dst = re.sub(r'\.insteadOf .*$', '', url_insteadof.rstrip())
+        url = re.sub(_src, _dst, url.rstrip())
+        print("URL TRACE: {}".format(url))
+
     retry_msg = ""
     for retry in range(0,6):
         if retry_msg:

@@ -76,6 +76,7 @@ legal_category_bsp=(
 "PSOC&#8482; 4 BSPs"
 "PSOC&#8482; 6 BSPs"
 "PSOC&#8482; Control BSPs"
+"PSOC&#8482; Edge BSPs"
 "Reference Design BSPs"
 "TRAVEO&#8482; BSPs"
 "USB BSPs"
@@ -309,7 +310,10 @@ function validate_category()
     for y in "${legal_values[@]}"; do
       echo "    ${y}"
     done
-    [[ ${is_partner} -eq 0 ]] && g_failed=1
+    if [[ ${is_partner} -eq 0 ]]; then
+      echo "FATAL ERROR: invalid catagories"
+      g_failed=1
+    fi
   fi
   echo ""
 }
@@ -526,6 +530,14 @@ if [[ ${#manifest_files[@]} -eq 0 ]]; then
   # Process the 'super-manifest' file and detect all manifest files (and json files)
   ## prepend "ordering characters" ([1234],) so that "manifest_files" can be sorted;
   ##   need to process 'dependency' manifests last
+  echo "[INFO] processing 'mtb-super-manifest' at: ${uri_super_manifest}"
+  url_insteadof=${URL_INSTEADOF:-}
+  if [[ -n ${url_insteadof} ]]; then
+    _src="${url_insteadof##*\.insteadOf }"
+    _dst="${url_insteadof%%\.insteadOf *}"
+    uri_super_manifest=$(echo ${uri_super_manifest} | sed -e "s,${_src},${_dst},")
+    printf "URL TRACE: ${uri_super_manifest}\n"
+  fi
   manifest_files+=("1,"${uri_super_manifest})
   rm -rf ${uri_super_manifest#https://github.com/}
   while read_xml; do
@@ -631,6 +643,7 @@ fi
 manifest_files=($(for x in ${manifest_files[@]}; do echo $x; done | sort))
 
 # process the manifest file(s)
+url_insteadof=${URL_INSTEADOF:-}
 for x in ${manifest_files[@]}; do
   ((++num_found))
   y=${x#?,}  # strip the ordering characters
@@ -638,6 +651,12 @@ for x in ${manifest_files[@]}; do
   z=${y#https://github.com/}
   if [[ ! -e ${z} ]]; then
     mkdir -p ${z%/*}
+    if [[ -n ${url_insteadof} ]]; then
+      _src="${url_insteadof##*\.insteadOf }"
+      _dst="${url_insteadof%%\.insteadOf *}"
+      y=$(echo ${y} | sed -e "s,${_src},${_dst},")
+      printf "URL TRACE: ${y}\n"
+    fi
     set -x
     curl -s -S -L ${y} -o ${z}
     { ${restore_xtrace}; } 2>/dev/null
