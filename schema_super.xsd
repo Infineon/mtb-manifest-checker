@@ -99,6 +99,7 @@
         </xs:element>
       </xs:all>
       <xs:attribute name="version" type="xs:string"/>
+      <xs:attribute name="sdk_list_url" type="validURI" use="optional"/>
     </xs:complexType>
   </xs:element>
 </xs:schema>

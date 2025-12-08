@@ -244,6 +244,7 @@ function detect_type()
   [[ ${line} = '<middleware version="2.0">' ]]      && manifest_type="middleware"
   [[ ${line} = '<super-manifest>' ]]                && manifest_type="super"
   [[ ${line} = '<super-manifest version="2.0">' ]]  && manifest_type="super"
+  [[ ${line} = '<super-manifest version="2.0" sdk_list_url="'*'">' ]]  && manifest_type="super"
 
   if [[ ${manifest_type} = "" ]]; then
     echo -e "\nFATAL ERROR: cannot determine 'manifest type' from '${line}' in '${filename}'"
@@ -578,6 +579,7 @@ if [[ ${#manifest_files[@]} -eq 0 ]]; then
         [[ "${ENTITY}" = ''                              &&  "${content}" = "" ]]  && expected=1
         [[ "${ENTITY}" = 'super-manifest'                &&  "${content}" = "" ]]  && expected=1
         [[ "${ENTITY}" = 'super-manifest version="2.0"'  &&  "${content}" = "" ]]  && expected=1
+        [[ "${ENTITY}" = 'super-manifest version="2.0" sdk_list_url="'*'"'  &&  "${content}" = "" ]]  && expected=1
         [[ "${ENTITY}" = '/super-manifest'               &&  "${content}" = "" ]]  && expected=1
         [[ "${ENTITY}" = 'app-manifest'                  &&  "${content}" = "" ]]  && expected=1
         [[ "${ENTITY}" = '/app-manifest'                 &&  "${content}" = "" ]]  && expected=1
