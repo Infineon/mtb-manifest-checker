@@ -1,5 +1,5 @@
 """
-# (c) 2022-2025, Infineon Technologies AG, or an affiliate of Infineon
+# (c) 2022-2026, Infineon Technologies AG, or an affiliate of Infineon
 # Technologies AG. All rights reserved.
 # This software, associated documentation and materials ("Software") is
 # owned by Infineon Technologies AG or one of its affiliates ("Infineon")
@@ -29,6 +29,7 @@
 """
 
 import argparse
+import concurrent.futures
 import os
 import random
 import re
@@ -131,6 +132,32 @@ def http_check(url):
             break
 
     return response.ok
+
+
+def warm_ls_remote_cache(git_repos):
+    """Pre-fetch 'git ls-remote' for a batch of repos, concurrently, ahead of time
+    Populates LS_REMOTE_CACHE only; with a simple, single line message on success.
+    Any failures are quitely ignored, allowing the existing code to perform retries, etc.
+    :param git_repos: iterable of git repository URLs to pre-fetch
+    """
+    global LS_REMOTE_CACHE
+
+    pending = sorted({git_repo for git_repo in git_repos if git_repo and git_repo not in LS_REMOTE_CACHE})
+    if not pending:
+        return
+
+    with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(pending))) as executor:
+        futures = {executor.submit(subprocess.run, ['git', 'ls-remote', git_repo],
+                                    capture_output=True, text=True): git_repo for git_repo in pending}
+        for future in concurrent.futures.as_completed(futures):
+            git_repo = futures[future]
+            try:
+                result = future.result()
+            except Exception:
+                continue
+            if result.returncode == 0:
+                LS_REMOTE_CACHE[git_repo] = result
+                print("... seed the cache with: {}".format(git_repo))
 
 
 def git_reference_check(git_repo, git_ref):
@@ -498,6 +525,11 @@ def process_board_manifest(input_manifest, output_manifest):
     """
 
     with process_manifest(input_manifest, output_manifest) as manifest:
+        # pre-fetch (in parallel) the repos that will be needed below
+        warm_ls_remote_cache(
+            board_manifest.find('board_uri').text
+            for board_manifest in manifest.findall('board')
+            if not board_manifest.find('board_uri').text.startswith('techpack:'))
         # iterate over <board> elements
         for board_manifest in manifest.findall('board'):
             if not process_element(board_manifest, 'board_uri'):
@@ -514,6 +546,11 @@ def process_app_manifest(input_manifest, output_manifest):
     """
 
     with process_manifest(input_manifest, output_manifest) as manifest:
+        # pre-fetch (in parallel) the repos that will be needed below
+        warm_ls_remote_cache(
+            app_manifest.find('uri').text
+            for app_manifest in manifest.findall('app')
+            if not app_manifest.find('uri').text.startswith('techpack:'))
         # iterate over <app> elements
         for app_manifest in manifest.findall('app'):
             if not process_element(app_manifest, 'uri'):
@@ -530,6 +567,11 @@ def process_middleware_manifest(input_manifest, output_manifest):
     """
 
     with process_manifest(input_manifest, output_manifest) as manifest:
+        # pre-fetch (in parallel) the repos that will be needed below
+        warm_ls_remote_cache(
+            middleware_manifest.find('uri').text
+            for middleware_manifest in manifest.findall('middleware')
+            if not middleware_manifest.find('uri').text.startswith('techpack:'))
         # iterate over <middleware> elements
         for middleware_manifest in manifest.findall('middleware'):
             if not process_element(middleware_manifest, 'uri'):
@@ -609,7 +651,7 @@ def process_dependency_manifest(input_manifest, output_manifest):
 
 
 def main():
-    global ASSET_CACHE
+    global ASSET_CACHE, LS_REMOTE_CACHE
 
     argParser = argparse.ArgumentParser()
     argParser.add_argument("manifest_type", help="Manifest type")
@@ -633,6 +675,20 @@ def main():
             lines = f.readlines()
             for line in lines:
                 ASSET_CACHE[line.split()[0]] = line.split()[1]
+
+    # seed the LS_REMOTE_CACHE (shared across manifest files, so "git ls-remote"
+    # is not repeated for a repo already queried while processing a prior manifest file)
+    if os.path.exists("out/ls_remote_cache.txt"):
+        with open("out/ls_remote_cache.txt", 'r') as f:
+            lines = f.readlines()
+        i = 0
+        while i < len(lines):
+            git_repo = lines[i].rstrip('\n')
+            count = int(lines[i + 1].rstrip('\n'))
+            stdout = ''.join(lines[i + 2:i + 2 + count])
+            LS_REMOTE_CACHE[git_repo] = subprocess.CompletedProcess(
+                args=['git', 'ls-remote', git_repo], returncode=0, stdout=stdout, stderr='')
+            i += 2 + count
 
     # process the manifest
     if manifest_type == "super":
@@ -665,6 +721,18 @@ def main():
         for key, value in ASSET_CACHE.items():
             f.write('%s %s\n' % (key, value))
 
+    # save the LS_REMOTE_CACHE
+    with open("out/ls_remote_cache.txt", 'w', newline='') as f:
+        # override os.linesep; do not generate '\r'
+        for git_repo, result in LS_REMOTE_CACHE.items():
+            stdout_lines = result.stdout.splitlines()
+            f.write('%s\n' % git_repo)
+            f.write('%d\n' % len(stdout_lines))
+            for line in stdout_lines:
+                f.write('%s\n' % line)
+
 
 if __name__ == '__main__':
     main()
+
+# EOF

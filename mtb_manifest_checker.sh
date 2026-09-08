@@ -1,6 +1,6 @@
 #!/bin/bash
 ##########
-# (c) 2022-2025, Infineon Technologies AG, or an affiliate of Infineon
+# (c) 2022-2026, Infineon Technologies AG, or an affiliate of Infineon
 # Technologies AG. All rights reserved.
 # This software, associated documentation and materials ("Software") is
 # owned by Infineon Technologies AG or one of its affiliates ("Infineon")
@@ -59,7 +59,6 @@ legal_category_app=(
 "Sensing"
 "Solutions"
 "USB-C Power Delivery"
-""
 "Wi-Fi"
 )
 
@@ -615,6 +614,10 @@ if [[ ${#manifest_files[@]} -eq 0 ]]; then
   ## ensure that the 'out/asset_cache.txt' file (for the dependency manifests)
   ## has been cleared (unless this is a "custom super-manifest")
   [[ ${f_custom} -eq 0 ]] && rm -f out/asset_cache.txt
+  ## when processing the "super-manifest" tree,
+  ## ensure that the 'out/ls_remote_cache.txt' file has been cleared
+  ## (unless the "KEEP_LS_REMOTE_CACHE" environment variable has been defined)
+  [[ -z ${KEEP_LS_REMOTE_CACHE} ]] && rm -f out/ls_remote_cache.txt
   mkdir -p  out
 else
   # Process the specified manifest files
