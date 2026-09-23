@@ -207,7 +207,12 @@ function get_local_path()
   # Strip the scheme and hostname from a URL, leaving the namespace, reponame, and remaining path.
   local url=$1
   local path=${url#http*://}
-  echo "${path#*/}"
+  if [[ ${path} = ${url} ]]; then
+    # no scheme was stripped; url is already a local path
+    echo "${url}"
+  else
+    echo "${path#*/}"
+  fi
 }
 
 function requires_python3()
@@ -224,7 +229,7 @@ function requires_python3()
     exit 4
   fi
 
-  printf "\n[info] using '%s' (%s) at [%s]\n\n" ${PYTHON3} $(${PYTHON3} --version 2>&1 | tr -d '[a-zA-Z ]*') $(which ${PYTHON3})
+  printf "\n[info] using '%s' (%s) at [%s]\n\n" "${PYTHON3}" "$(${PYTHON3} --version 2>&1 | tr -d '[a-zA-Z ]*')" "$(which ${PYTHON3})"
 }
 
 function requires_python3_module()
@@ -308,7 +313,8 @@ function validate_category()
   esac
   #
   failed=0
-  is_partner=$(echo "${manifest_file}" | grep -v -i "^Infineon/" | wc -l)
+  manifest_file_lower=$(echo "${manifest_file}" | tr '[:upper:]' '[:lower:]')
+  [[ ${manifest_file_lower} = infineon/* ]] && is_partner=0 || is_partner=1
   msg_prefix="FATAL ERROR"
   [[ ${is_partner} -ne 0 ]] && msg_prefix="Warning"
   ## readarray is not available pre Bash-4
@@ -317,9 +323,11 @@ function validate_category()
   while read line; do output+=("${line}"); done < <(grep "<category>.*</category>" ${manifest_file})
   ##
   for x in "${output[@]}"; do
+    content=${x#*<category>}
+    content=${content%%</category>*}
+    match=0
     for y in "${legal_values[@]}"; do
-      match=$(echo "${x}" | grep "^ *<category>${y}</category>$" | wc -l)
-      [[ ${match} -ne 0 ]] && break
+      [[ "${content}" = "${y}" ]] && { match=1; break; }
     done
     if [[ ${match} -eq 0 ]]; then
       echo -e "${msg_prefix}: unknown category: ${x}"
