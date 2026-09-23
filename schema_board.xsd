@@ -62,7 +62,12 @@
   -->
   <xs:simpleType name="validURIdoc">
     <xs:restriction base="xs:string">
-      <xs:pattern value="(https?://www.cypress.com/\S+|https://www.infineon.com/\S+|https://community.infineon.com/\S+|https://github.com/\S+)"/>
+      <!-- sibling patterns are ORed together per XSD spec -->
+      <xs:pattern value="https?://www.cypress.com/\S+"/>
+      <xs:pattern value="https://www.infineon.com/\S+"/>
+      <xs:pattern value="https://community.infineon.com/\S+"/>
+      <xs:pattern value="https://github.com/\S+"/>
+      <xs:pattern value="https://www.ezurio.com/\S+"/>
     </xs:restriction>
   </xs:simpleType>
 

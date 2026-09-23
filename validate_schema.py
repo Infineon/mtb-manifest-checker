@@ -34,6 +34,10 @@ import urllib.request, urllib.error, urllib.parse
 import errno
 from xml.parsers import expat
 
+# override os.linesep; do not generate '\r'
+sys.stdout.reconfigure(newline='\n')
+sys.stderr.reconfigure(newline='\n')
+
 try:
     from lxml import etree
 except ImportError as ex:

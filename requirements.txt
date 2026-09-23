@@ -1,2 +1,4 @@
-lxml==4.9.4
-requests==2.31.0
+lxml==4.9.4; python_version < "3.13"
+lxml; python_version >= "3.13"
+requests==2.31.0; python_version < "3.13"
+requests; python_version >= "3.13"

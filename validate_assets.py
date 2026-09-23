@@ -42,6 +42,10 @@ import time
 from contextlib import contextmanager
 from lxml import etree
 
+# override os.linesep; do not generate '\r'
+sys.stdout.reconfigure(newline='\n')
+sys.stderr.reconfigure(newline='\n')
+
 # Compile regular expression for git repository URI
 # (https://github.com/Infineon)/(mtb-example-btsdk-empty)
 # (1) baseurl: https://github.com/Infineon
@@ -84,6 +88,26 @@ def exec(*cmdline):
     return subprocess.check_output(list(cmdline)).decode('utf-8')
 
 
+def get_mirror_url(original_url):
+    try:
+        # Use git's URL rewrite rules (insteadOf) to determine
+        # whether a mirror should be used.
+        result = subprocess.run(
+            ["git", "ls-remote", "--get-url", original_url],
+            capture_output=True,
+            text=True,
+            check=True,
+        )
+        mirror_url = result.stdout.strip()
+        # Ignore SSH rewrite rules since blob downloads require HTTP/HTTPS.
+        if not mirror_url.lower().startswith(("http://", "https://")):
+            return original_url
+        return mirror_url
+    except subprocess.CalledProcessError:
+        # No matching rewrite rule found.
+        return original_url
+
+
 def http_check(url):
     """Check URL points to valid HTTP location
     :param url: HTTP URL
@@ -91,13 +115,6 @@ def http_check(url):
     For optimization purposes, the HTTP requests are cached in HTTP_CACHE
     """
     global HTTP_CACHE
-
-    url_insteadof = os.environ.get('URL_INSTEADOF', "")
-    if url_insteadof:
-        _src = re.sub(r'^.*\.insteadOf ', '', url_insteadof.rstrip())
-        _dst = re.sub(r'\.insteadOf .*$', '', url_insteadof.rstrip())
-        url = re.sub(_src, _dst, url.rstrip())
-        print("URL TRACE: {}".format(url))
 
     retry_msg = ""
     for retry in range(0,6):
@@ -362,6 +379,7 @@ def process_super_element(super_element):
     print("\nValidate super manifest [<uri>]: {}".format(git_raw))
 
     # Check the URI is valid
+    git_raw = get_mirror_url(git_raw)
     if not http_check(git_raw):
         print("FATAL ERROR: cannot access: {}".format(git_raw))
         return False
@@ -395,6 +413,7 @@ def process_super_element(super_element):
         print("\nValidate super manifest [<dependency-url>]: {}".format(dep_url))
 
         # Check the URI is valid
+        dep_url = get_mirror_url(dep_url)
         if not http_check(dep_url):
             print("FATAL ERROR: cannot access: {}".format(dep_url))
             return False
@@ -445,7 +464,9 @@ def process_element(xml_element, uri_element_name):
         return True
 
     print("\nValidate manifest [<id> <{}>]: {} {}".format(uri_element_name, asset_id, git_repo))
-    # save data for "dependency" manifest processing
+    # resolve the mirror (if any) before performing git operations, and cache the resolved URL
+    # for use in "dependency" manifest processing
+    git_repo = get_mirror_url(git_repo)
     global ASSET_CACHE
     ASSET_CACHE[asset_id] = git_repo
 
@@ -527,7 +548,7 @@ def process_board_manifest(input_manifest, output_manifest):
     with process_manifest(input_manifest, output_manifest) as manifest:
         # pre-fetch (in parallel) the repos that will be needed below
         warm_ls_remote_cache(
-            board_manifest.find('board_uri').text
+            get_mirror_url(board_manifest.find('board_uri').text)
             for board_manifest in manifest.findall('board')
             if not board_manifest.find('board_uri').text.startswith('techpack:'))
         # iterate over <board> elements
@@ -548,7 +569,7 @@ def process_app_manifest(input_manifest, output_manifest):
     with process_manifest(input_manifest, output_manifest) as manifest:
         # pre-fetch (in parallel) the repos that will be needed below
         warm_ls_remote_cache(
-            app_manifest.find('uri').text
+            get_mirror_url(app_manifest.find('uri').text)
             for app_manifest in manifest.findall('app')
             if not app_manifest.find('uri').text.startswith('techpack:'))
         # iterate over <app> elements
@@ -569,7 +590,7 @@ def process_middleware_manifest(input_manifest, output_manifest):
     with process_manifest(input_manifest, output_manifest) as manifest:
         # pre-fetch (in parallel) the repos that will be needed below
         warm_ls_remote_cache(
-            middleware_manifest.find('uri').text
+            get_mirror_url(middleware_manifest.find('uri').text)
             for middleware_manifest in manifest.findall('middleware')
             if not middleware_manifest.find('uri').text.startswith('techpack:'))
         # iterate over <middleware> elements

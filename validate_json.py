@@ -32,6 +32,10 @@ import filecmp
 import json
 import sys
 
+# override os.linesep; do not generate '\r'
+sys.stdout.reconfigure(newline='\n')
+sys.stderr.reconfigure(newline='\n')
+
 if len(sys.argv) < 3:
     print('FATAL ERROR: must have at least 2 args!', file=sys.stderr)
     exit(1)

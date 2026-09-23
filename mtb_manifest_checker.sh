@@ -186,6 +186,30 @@ function requires_xmllint()
   fi
 }
 
+function get_mirror_url()
+{
+  # Use git's URL rewrite rules (insteadOf) to determine whether a mirror should be used.
+  local original_url=$1
+  local mirror_url
+  mirror_url=$(git ls-remote --get-url "${original_url}" 2>/dev/null) || mirror_url=""
+  # Ignore SSH rewrite rules since blob downloads require HTTP/HTTPS.
+  ## ${mirror_url,,} syntax requires bash 4.0+
+  mirror_url_lower=$(echo "$mirror_url" | tr '[:upper:]' '[:lower:]')
+  if [[ -z ${mirror_url} || ( ${mirror_url_lower} != http://* && ${mirror_url_lower} != https://* ) ]]; then
+    echo "${original_url}"
+  else
+    echo "${mirror_url}"
+  fi
+}
+
+function get_local_path()
+{
+  # Strip the scheme and hostname from a URL, leaving the namespace, reponame, and remaining path.
+  local url=$1
+  local path=${url#http*://}
+  echo "${path#*/}"
+}
+
 function requires_python3()
 {
   PYTHON3=python3
@@ -531,21 +555,15 @@ if [[ ${#manifest_files[@]} -eq 0 ]]; then
   ## prepend "ordering characters" ([1234],) so that "manifest_files" can be sorted;
   ##   need to process 'dependency' manifests last
   echo "[INFO] processing 'mtb-super-manifest' at: ${uri_super_manifest}"
-  url_insteadof=${URL_INSTEADOF:-}
-  if [[ -n ${url_insteadof} ]]; then
-    _src="${url_insteadof##*\.insteadOf }"
-    _dst="${url_insteadof%%\.insteadOf *}"
-    uri_super_manifest=$(echo ${uri_super_manifest} | sed -e "s,${_src},${_dst},")
-    printf "URL TRACE: ${uri_super_manifest}\n"
-  fi
+  uri_super_manifest=$(get_mirror_url "${uri_super_manifest}")
   manifest_files+=("1,"${uri_super_manifest})
-  rm -rf ${uri_super_manifest#https://github.com/}
+  rm -rf $(get_local_path "${uri_super_manifest}")
   while read_xml; do
     case "${ENTITY}" in
       "uri")
         x="${CONTENT//[[:space:]]}"  # strip all whitespace
         manifest_files+=("2,"${x})
-        rm -rf ${x#https://github.com/}
+        rm -rf $(get_local_path "${x}")
         ;;
       "board-manifest "*)
         # find optional "dependency-url"
@@ -554,7 +572,7 @@ if [[ ${#manifest_files[@]} -eq 0 ]]; then
           y="${x//[[:space:]]}"        # strip all whitespace
           z=${y//\"}                   # strip all double-quote characters
           manifest_files+=("4,"${z})
-          rm -rf ${z#https://github.com/}
+          rm -rf $(get_local_path "${z}")
         fi
         # find optional "capability-url"
         if [[ ${ENTITY} = *" capability-url="* ]]; then
@@ -562,7 +580,7 @@ if [[ ${#manifest_files[@]} -eq 0 ]]; then
           y="${x//[[:space:]]}"        # strip all whitespace
           z=${y//\"}                   # strip all double-quote characters
           manifest_files+=("3,"${z})
-          rm -rf ${z#https://github.com/}
+          rm -rf $(get_local_path "${z}")
         fi
         ;;
       "middleware-manifest dependency-url="*)
@@ -570,7 +588,7 @@ if [[ ${#manifest_files[@]} -eq 0 ]]; then
         y="${x//[[:space:]]}"        # strip all whitespace
         z=${y//\"}                   # strip all double-quote characters
         manifest_files+=("3,"${z})
-        rm -rf ${z#https://github.com/}
+        rm -rf $(get_local_path "${z}")
         ;;
       *)
         expected=0
@@ -648,20 +666,14 @@ fi
 manifest_files=($(for x in ${manifest_files[@]}; do echo $x; done | sort))
 
 # process the manifest file(s)
-url_insteadof=${URL_INSTEADOF:-}
 for x in ${manifest_files[@]}; do
   ((++num_found))
   y=${x#?,}  # strip the ordering characters
   echo -e "\n\n### Process: ${y}"
-  z=${y#https://github.com/}
+  y=$(get_mirror_url "${y}")
+  z=$(get_local_path "${y}")
   if [[ ! -e ${z} ]]; then
     mkdir -p ${z%/*}
-    if [[ -n ${url_insteadof} ]]; then
-      _src="${url_insteadof##*\.insteadOf }"
-      _dst="${url_insteadof%%\.insteadOf *}"
-      y=$(echo ${y} | sed -e "s,${_src},${_dst},")
-      printf "URL TRACE: ${y}\n"
-    fi
     set -x
     curl -s -S -L ${y} -o ${z}
     { ${restore_xtrace}; } 2>/dev/null
