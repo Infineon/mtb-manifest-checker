@@ -218,7 +218,7 @@ function get_local_path()
 function requires_python3()
 {
   PYTHON3=python3
-  major_version=$(which python >/dev/null 2>&1 && python --version 2>&1 | tr -d '[a-zA-Z ]*' | cut -d '.' -f1)
+  major_version=$(which python >/dev/null 2>&1 && python --version 2>&1 | tr -dc '0-9.' | cut -d '.' -f1)
   # use 'python' if it is version 3.x.x or above
   [[ ${major_version} -ge 3 ]] && PYTHON3=python
 
@@ -229,7 +229,7 @@ function requires_python3()
     exit 4
   fi
 
-  printf "\n[info] using '%s' (%s) at [%s]\n\n" "${PYTHON3}" "$(${PYTHON3} --version 2>&1 | tr -d '[a-zA-Z ]*')" "$(which ${PYTHON3})"
+  printf "\n[info] using '%s' (%s) at [%s]\n\n" "${PYTHON3}" "$(${PYTHON3} --version 2>&1 | tr -dc '0-9.')" "$(which ${PYTHON3})"
 }
 
 function requires_python3_module()

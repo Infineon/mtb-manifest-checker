@@ -75,6 +75,12 @@ HTTP_CACHE = {}
 # Key: git remote URL, value: output of "git ls-remote <URL>" command
 LS_REMOTE_CACHE = {}
 
+# Optional directory containing local mirrors of git repos, laid out as
+# "<GITHUB_DATA_LOCAL>/<namespace>/<reponame>". When set, and a given repo exists
+# underneath it, "git ls-remote" is performed against the local mirror instead of
+# the network; otherwise the original (or insteadOf-resolved) URL is used.
+GITHUB_DATA_LOCAL = os.environ.get('GITHUB_DATA_LOCAL')
+
 # This database holds a cache of "bare repo" lookups
 # Key: git remote URL + "_" + git_ref, value: git_ref
 BARE_REPO_CACHE = {}
@@ -106,6 +112,27 @@ def get_mirror_url(original_url):
     except subprocess.CalledProcessError:
         # No matching rewrite rule found.
         return original_url
+
+
+def get_local_mirror(git_repo):
+    """Resolve the local mirror path for a git repository URL, if configured and present
+    :param git_repo: git repository URL
+    :return: path to the local mirror directory, if GITHUB_DATA_LOCAL is set and the repo
+       exists underneath it, None otherwise
+    """
+    if not GITHUB_DATA_LOCAL:
+        return None
+
+    git_repo_match = re.match(RE_GIT_REPO_URI, git_repo)
+    if not git_repo_match:
+        return None
+    git_baseuri = git_repo_match.group(1)
+    git_reponame = git_repo_match.group(2)
+    namespace = git_baseuri.rstrip('/').rsplit('/', 1)[-1]
+
+    local_path = os.path.join(GITHUB_DATA_LOCAL, namespace, git_reponame + ".git").replace(os.sep, '/')
+    # confirm it's a mirror repo, not just a directory that happens to exist
+    return local_path if os.path.isfile(os.path.join(local_path, "config")) else None
 
 
 def http_check(url):
@@ -164,7 +191,8 @@ def warm_ls_remote_cache(git_repos):
         return
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(pending))) as executor:
-        futures = {executor.submit(subprocess.run, ['git', 'ls-remote', git_repo],
+        local_mirrors = {git_repo: get_local_mirror(git_repo) for git_repo in pending}
+        futures = {executor.submit(subprocess.run, ['git', 'ls-remote', local_mirrors[git_repo] or git_repo],
                                     capture_output=True, text=True): git_repo for git_repo in pending}
         for future in concurrent.futures.as_completed(futures):
             git_repo = futures[future]
@@ -173,8 +201,9 @@ def warm_ls_remote_cache(git_repos):
             except Exception:
                 continue
             if result.returncode == 0:
+                # cache is always keyed by the original URL, regardless of source used above
                 LS_REMOTE_CACHE[git_repo] = result
-                print("... seed the cache with: {}".format(git_repo))
+                print("... seed the cache with: {}".format(local_mirrors[git_repo] or git_repo))
 
 
 def git_reference_check(git_repo, git_ref):
@@ -201,9 +230,10 @@ def git_reference_check(git_repo, git_ref):
         # perform a "git ls-remote" command
         git_ls_remote_output = None
         if not git_repo in LS_REMOTE_CACHE:
-            print("++ git ls-remote {}".format(git_repo))
+            local_mirror = get_local_mirror(git_repo)
+            print("++ git ls-remote {}".format(local_mirror if local_mirror else git_repo))
             try:
-                git_ls_remote_output = subprocess.run(['git', 'ls-remote', git_repo], capture_output=True, text=True)
+                git_ls_remote_output = subprocess.run(['git', 'ls-remote', local_mirror or git_repo], capture_output=True, text=True)
             except Exception as e:
                 print("FATAL ERROR: exception is: {}".format(e))
         else:
