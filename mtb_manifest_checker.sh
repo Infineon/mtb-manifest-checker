@@ -65,6 +65,7 @@ legal_category_app=(
 legal_category_bsp=(
 "AIROC&#8482; Bluetooth&#174; BSPs"
 "AIROC&#8482; Connectivity BSPs"
+"AIROC&#8482; UWB BSPs"
 "CCG BSPs"
 "iMOTION&#8482; BSPs"
 "LITIX&#8482; BSPs"
@@ -80,6 +81,7 @@ legal_category_bsp=(
 "TRAVEO&#8482; BSPs"
 "USB BSPs"
 "Wireless Charging BSPs"
+"XDP&#8482; BSPs"
 "XMC&#8482; BSPs"
 )
 
