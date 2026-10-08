@@ -680,8 +680,17 @@ for x in ${manifest_files[@]}; do
   ((++num_found))
   y=${x#?,}  # strip the ordering characters
   echo -e "\n\n### Process: ${y}"
+  local_path=$(get_local_path "${y}")
   y=$(get_mirror_url "${y}")
   z=$(get_local_path "${y}")
+  if [[ -n "${GITHUB_DATA_LOCAL}" ]]; then
+    if [[ -f "${GITHUB_DATA_LOCAL}/${local_path}" ]]; then
+      mkdir -p "${z%/*}"
+      set -x
+      cp -pf "${GITHUB_DATA_LOCAL}/${local_path}" "${z}"
+      { ${restore_xtrace}; } 2>/dev/null
+    fi
+  fi
   if [[ ! -e ${z} ]]; then
     mkdir -p ${z%/*}
     set -x

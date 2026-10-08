@@ -81,10 +81,11 @@
 
   <!-- category constraints
        - comma-separated list
+       - allow trailing comma
   -->
   <xs:simpleType name="validKeywords">
     <xs:restriction base="xs:string">
-      <xs:pattern value="([\w -.]+(,[\w -.]+)*)?"/>
+      <xs:pattern value="([\w ()_-]+(,[\w ()_-]+)*,?)?"/>
     </xs:restriction>
   </xs:simpleType>
 
