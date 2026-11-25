@@ -102,6 +102,7 @@ legal_category_mw=(
 
 g_manifest_type=""
 g_failed=0
+g_assets_failed=0
 
 f_syntax=0
 f_format=0
@@ -412,9 +413,10 @@ function test_format()
   if [[ ${lines} -ne 0 ]]; then
     echo ""
     echo "xmllint returned: ${rc}"
-    echo "FATAL ERROR: formatting error:"
-    ####diff --ignore-space-change $x out/$y || : # TODO
-    diff $x out/$y || :
+    echo "FATAL ERROR: formatting error(s)"
+    echo "  ... the following diff shows non-printing characters, tabs, and end-of-line markers (to reveal trailing white-space)"
+    echo ""
+    diff $x out/$y | cat -vet || :
     g_failed=1
     echo ""
     echo "Manifest: ${manifest_file}"
@@ -469,14 +471,18 @@ function test_assets()
     rm -rf   out/${y}
     mkdir -p out
     set +e
+    export PRIOR_FAILURES=${g_assets_failed}
     echo -e "+ ${PYTHON3} -u ${top_dir}/validate_assets.py ${g_manifest_type} ${x} out/${y}"
                ${PYTHON3} -u ${top_dir}/validate_assets.py ${g_manifest_type} ${x} out/${y}
     rc=$?
     ${restore_errexit}
-    echo ""
     if [[ ${rc} -ne 0 ]]; then
       echo "FATAL ERROR: '${x}' failed processing!"
       g_failed=1
+      # detect failures in the earlier manifest tests
+      case "${g_manifest_type}" in
+        super|board|app|middleware) g_assets_failed=1 ;;
+      esac
       echo ""
       echo "Manifest: ${manifest_file}"
       echo "Failed asset validation"
@@ -489,6 +495,7 @@ function test_assets()
     fi
   else
     g_failed=1
+    g_assets_failed=1
   fi
   echo -e "####################"
 }
@@ -534,9 +541,11 @@ function test_format_json()
   echo ""
   if [[ ${rc} -ne 0 ]]; then
     ## diff the original and the generated file
-    echo -e "FATAL ERROR: formatting error(s)...\n"
+    echo "FATAL ERROR: formatting error(s)"
+    echo "  ... the following diff shows non-printing characters, tabs, and end-of-line markers (to reveal trailing white-space)"
+    echo ""
     echo "+ diff ${json_file} out/${y}"
-            diff ${json_file} out/${y} || :
+            diff ${json_file} out/${y} | cat -vet || :
     g_failed=1
     echo ""
     echo "JSON file: ${json_file}"

@@ -85,6 +85,9 @@ GITHUB_DATA_LOCAL = os.environ.get('GITHUB_DATA_LOCAL')
 # Key: git remote URL + "_" + git_ref, value: git_ref
 BARE_REPO_CACHE = {}
 
+# Set when any of the "earlier" manifest tests have failed
+PRIOR_FAILURES = os.environ.get('PRIOR_FAILURES') == '1'
+
 def exec(*cmdline):
     """Execute command line, parse stdout, suppress stderr
     :param cmdline: command line array (command + arguments)
@@ -135,6 +138,18 @@ def get_local_mirror(git_repo):
     return local_path if os.path.isfile(os.path.join(local_path, "config")) else None
 
 
+def get_ls_remote_url(git_repo):
+    """Resolve the URL used for 'git ls-remote': the local mirror if present, otherwise the
+    remote URL terminated with '.git' (avoids the server's "warning: redirecting to" message)
+    """
+    local_mirror = get_local_mirror(git_repo)
+    if local_mirror:
+        return local_mirror
+    if git_repo.lower().startswith(("http://", "https://")) and not git_repo.endswith(".git"):
+        return git_repo.rstrip('/') + ".git"
+    return git_repo
+
+
 def http_check(url):
     """Check URL points to valid HTTP location
     :param url: HTTP URL
@@ -178,6 +193,25 @@ def http_check(url):
     return response.ok
 
 
+def local_file_check(local_mirror, git_ref, git_filename):
+    """Check whether a file exists at a given ref within a local git mirror
+    :param local_mirror: path to the local bare mirror repository
+    :param git_ref: branch/tag/commit to check
+    :param git_filename: path of the file within the repository
+    :return True if the file exists at that ref, False otherwise
+    """
+    result = subprocess.run(
+        ["git", "--git-dir", local_mirror, "cat-file", "-e", "{}:{}".format(git_ref, git_filename)],
+        capture_output=True, text=True,
+    )
+    if result.returncode == 0:
+        print("[DEBUG] '{}:{}' is accessible [local mirror {}]".format(git_ref, git_filename, local_mirror))
+        return True
+    else:
+        print("[DEBUG] '{}:{}' is not accessible [local mirror {}]".format(git_ref, git_filename, local_mirror))
+        return False
+
+
 def warm_ls_remote_cache(git_repos):
     """Pre-fetch 'git ls-remote' for a batch of repos, concurrently, ahead of time
     Populates LS_REMOTE_CACHE only; with a simple, single line message on success.
@@ -191,8 +225,8 @@ def warm_ls_remote_cache(git_repos):
         return
 
     with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(pending))) as executor:
-        local_mirrors = {git_repo: get_local_mirror(git_repo) for git_repo in pending}
-        futures = {executor.submit(subprocess.run, ['git', 'ls-remote', local_mirrors[git_repo] or git_repo],
+        local_mirrors = {git_repo: get_ls_remote_url(git_repo) for git_repo in pending}
+        futures = {executor.submit(subprocess.run, ['git', 'ls-remote', local_mirrors[git_repo]],
                                     capture_output=True, text=True): git_repo for git_repo in pending}
         for future in concurrent.futures.as_completed(futures):
             git_repo = futures[future]
@@ -203,7 +237,7 @@ def warm_ls_remote_cache(git_repos):
             if result.returncode == 0:
                 # cache is always keyed by the original URL, regardless of source used above
                 LS_REMOTE_CACHE[git_repo] = result
-                print("... seed the cache with: {}".format(local_mirrors[git_repo] or git_repo))
+                print("... seed the cache with: {}".format(local_mirrors[git_repo]))
 
 
 def git_reference_check(git_repo, git_ref):
@@ -230,10 +264,10 @@ def git_reference_check(git_repo, git_ref):
         # perform a "git ls-remote" command
         git_ls_remote_output = None
         if not git_repo in LS_REMOTE_CACHE:
-            local_mirror = get_local_mirror(git_repo)
-            print("++ git ls-remote {}".format(local_mirror if local_mirror else git_repo))
+            ls_remote_url = get_ls_remote_url(git_repo)
+            print("++ git ls-remote {}".format(ls_remote_url))
             try:
-                git_ls_remote_output = subprocess.run(['git', 'ls-remote', local_mirror or git_repo], capture_output=True, text=True)
+                git_ls_remote_output = subprocess.run(['git', 'ls-remote', ls_remote_url], capture_output=True, text=True)
             except Exception as e:
                 print("FATAL ERROR: exception is: {}".format(e))
         else:
@@ -248,7 +282,7 @@ def git_reference_check(git_repo, git_ref):
         # process the stderr of the "git ls-remote" command
         if git_ls_remote_output.returncode != 0:
             if git_ls_remote_output.stderr:
-                print(git_ls_remote_output.stderr)
+                print(git_ls_remote_output.stderr.rstrip())
             for line in git_ls_remote_output.stderr.splitlines():
                 m = re.match(r'^.*{}$'.format("The requested URL returned error: 403"), line)
                 if m:
@@ -261,7 +295,7 @@ def git_reference_check(git_repo, git_ref):
         output = None
         if git_ls_remote_output.returncode == 0:
             if git_ls_remote_output.stderr:
-                print(git_ls_remote_output.stderr)
+                print(git_ls_remote_output.stderr.rstrip())
             for line in git_ls_remote_output.stdout.splitlines():
                 m = re.match(r'^.*{}$'.format(git_ref), line) # match 'git_ref' at end of line
                 if m:
@@ -336,43 +370,45 @@ def git_bare_repo_check(git_repo, git_ref):
     os.mkdir(tmp_dir)
     os.chdir(tmp_dir)
 
-    ## clone the bare repo
     try:
-        __url = git_baseuri + "/" + git_reponame + ".git"
-        print("++ ", end='')
-        exec('git', 'clone', '--no-progress', '--mirror', __url)
-    except Exception as e:
-        print("FATAL ERROR: cannot clone '{}' exception is: {}".format(__url, e))
-        return None
+        ## clone the bare repo, preferring the local mirror (GITHUB_DATA_LOCAL) if present
+        try:
+            __url = get_local_mirror(git_repo) or (git_baseuri + "/" + git_reponame + ".git")
+            print("++ ", end='')
+            exec('git', 'clone', '--no-progress', '--mirror', __url)
+        except Exception as e:
+            print("FATAL ERROR: cannot clone '{}' exception is: {}".format(__url, e))
+            return None
 
-    if not os.path.isdir(git_reponame + ".git"):
-        print("FATAL ERROR: cannot clone '{}'".format(__url))
-        return None
+        if not os.path.isdir(git_reponame + ".git"):
+            print("FATAL ERROR: cannot clone '{}'".format(__url))
+            return None
 
-    ## test for git_ref in the bare repo
-    os.chdir(git_reponame + ".git")
-    try:
-        print("++ ", end='')
-        output = exec('git', 'cat-file', '-t', git_ref)
-    except Exception as e:
-        print("FATAL ERROR: cannot find '{}' in bare repo, exception is: {}".format(git_ref, e))
-        return None
+        ## test for git_ref in the bare repo
+        os.chdir(git_reponame + ".git")
+        try:
+            print("++ ", end='')
+            output = exec('git', 'cat-file', '-t', git_ref)
+        except Exception as e:
+            print("FATAL ERROR: cannot find '{}' in bare repo, exception is: {}".format(git_ref, e))
+            return None
 
-    if not output:
-        print("FATAL ERROR: cannot find '{}' in bare repo".format(git_ref))
-        return None
-
-    os.chdir(cwd)
-    if os.path.isdir(tmp_dir):
-        # ensure "o+w" so that this can be deleted
-        for root, dirs, files in os.walk(tmp_dir):
-            for d in dirs:
-                mode=os.stat(os.path.join(root, d)).st_mode
-                os.chmod(os.path.join(root, d), (mode | stat.S_IWUSR))
-            for f in files:
-                mode=os.stat(os.path.join(root, f)).st_mode
-                os.chmod(os.path.join(root, f), (mode | stat.S_IWUSR))
-        shutil.rmtree(tmp_dir)
+        if not output:
+            print("FATAL ERROR: cannot find '{}' in bare repo".format(git_ref))
+            return None
+    finally:
+        # restore cwd and remove the temp clone on every path, including failures
+        os.chdir(cwd)
+        if os.path.isdir(tmp_dir):
+            # ensure "o+w" so that this can be deleted
+            for root, dirs, files in os.walk(tmp_dir):
+                for d in dirs:
+                    mode=os.stat(os.path.join(root, d)).st_mode
+                    os.chmod(os.path.join(root, d), (mode | stat.S_IWUSR))
+                for f in files:
+                    mode=os.stat(os.path.join(root, f)).st_mode
+                    os.chmod(os.path.join(root, f), (mode | stat.S_IWUSR))
+            shutil.rmtree(tmp_dir)
 
     BARE_REPO_CACHE[key] = git_ref
     return "found '{}' in the bare repo".format(git_ref)
@@ -394,6 +430,45 @@ def process_manifest(input_manifest, output_manifest):
         manifest_tree.write(output_manifest, pretty_print=True)
 
 
+def check_super_raw_url(raw_url):
+    """Check that a raw URL of the super manifest is valid, accessible, and has a valid ref
+    :param raw_url: the <uri> or dependency-url content
+    :return: True on success, False otherwise
+    """
+
+    # Check the URI is valid
+    git_raw = get_mirror_url(raw_url)
+
+    # Parse the repository data from the raw URI
+    git_raw_match = re.match(RE_GIT_RAW_URI, git_raw)
+    if not git_raw_match:
+        print("FATAL ERROR: unable to parse the Git raw URI: {}".format(git_raw))
+        return False
+
+    git_repo = git_raw_match.group(1)
+    # the ref may contain "/"; the filename is the last path segment
+    ref_and_filename = git_raw_match.group(5) + "/" + git_raw_match.group(6)
+    git_ref, git_filename = ref_and_filename.rsplit("/", 1)
+
+    # prefer the local mirror (GITHUB_DATA_LOCAL), falling back to the HTTP check
+    local_mirror = get_local_mirror(git_repo)
+    if local_mirror:
+        if not local_file_check(local_mirror, git_ref, git_filename):
+            print("FATAL ERROR: cannot access: {}".format(git_raw))
+            return False
+    elif not http_check(git_raw):
+        print("FATAL ERROR: cannot access: {}".format(git_raw))
+        return False
+
+    # check if the git_ref is valid (branch/tag/commit)
+    response = git_reference_check(git_repo, git_ref)
+    if not response:
+        print("FATAL ERROR: {} reference doesn't exist at {}".format(git_ref, git_repo))
+        return False
+
+    return True
+
+
 def process_super_element(super_element):
     """Process single element of the super manifest
     1. Check that the <uri> exists
@@ -403,74 +478,18 @@ def process_super_element(super_element):
     """
 
     # get the <uri> element
-    uri_element = super_element.find('uri')
-    git_raw = uri_element.text
-
+    git_raw = super_element.find('uri').text
     print("\nValidate super manifest [<uri>]: {}".format(git_raw))
+    success = check_super_raw_url(git_raw)
 
-    # Check the URI is valid
-    git_raw = get_mirror_url(git_raw)
-    if not http_check(git_raw):
-        print("FATAL ERROR: cannot access: {}".format(git_raw))
-        return False
-
-    # Parse the repository data from the raw URI
-    git_raw_match = re.match(RE_GIT_RAW_URI, git_raw)
-    if not git_raw_match:
-        print("FATAL ERROR: unable to parse the Git raw URI: {}".format(git_raw))
-        return False
-
-    git_repo = git_raw_match.group(1)
-    git_server = git_raw_match.group(2)
-    git_namespace = git_raw_match.group(3)
-    git_reponame = git_raw_match.group(4)
-    git_ref = git_raw_match.group(5)
-    git_filename = git_raw_match.group(6)
-
-    if "/" in git_filename:
-        print("FATAL ERROR: invalid 'ref' detected in the Git raw URI: {}".format(git_raw))
-        return False # code_0229
-
-    # check if the git_ref is valid (branch/tag/commit)
-    response = git_reference_check(git_repo, git_ref)
-    if not response:
-        print("FATAL ERROR: {} reference doesn't exist at {}".format(git_ref, git_repo))
-        return False
-
-    # process (optional) dependency-url
+    # process (optional) dependency-url, even if the <uri> failed
     dep_url = super_element.get("dependency-url")
     if dep_url is not None:
         print("\nValidate super manifest [<dependency-url>]: {}".format(dep_url))
+        if not check_super_raw_url(dep_url):
+            success = False
 
-        # Check the URI is valid
-        dep_url = get_mirror_url(dep_url)
-        if not http_check(dep_url):
-            print("FATAL ERROR: cannot access: {}".format(dep_url))
-            return False
-
-        git_raw_dep_match = re.match(RE_GIT_RAW_URI, dep_url)
-        if not git_raw_dep_match:
-            print("FATAL ERROR: unable to parse the Git raw URI: {}".format(dep_url))
-            return False
-
-        git_dep_repo = git_raw_dep_match.group(1)
-        git_dep_server = git_raw_dep_match.group(2)
-        git_dep_namespace = git_raw_dep_match.group(3)
-        git_dep_reponame = git_raw_dep_match.group(4)
-        git_dep_ref = git_raw_dep_match.group(5)
-        git_dep_filename = git_raw_dep_match.group(6)
-
-        if "/" in git_dep_filename:
-            print("FATAL ERROR: invalid 'ref' detected in the Git dep URI: {}".format(git_raw))
-            return False # code_0228
-
-        # check if the git_dep_ref is valid (branch/tag/commit)
-        response = git_reference_check(git_dep_repo, git_dep_ref)
-        if not response:
-            print("FATAL ERROR: {} reference doesn't exist at {}".format(git_dep_ref, git_dep_repo))
-            return False
-
-    return True
+    return success
 
 
 def process_element(xml_element, uri_element_name):
@@ -510,6 +529,7 @@ def process_element(xml_element, uri_element_name):
 
     # get the <versions> element
     versions_element = xml_element.find('versions')
+    success = True
 
     if versions_element is not None:
 
@@ -523,14 +543,15 @@ def process_element(xml_element, uri_element_name):
             response = git_reference_check(git_repo, commit)
             if not response:
                 print("FATAL ERROR: {} reference doesn't exist at {}".format(commit, git_repo))
-                return False
+                success = False
+                continue
             if commit in commit_list:
                 print("FATAL ERROR: duplicate reference {} in {}".format(commit, git_repo))
-                return False
+                success = False
             else:
                 commit_list.append( commit )
 
-    return True
+    return success
 
 
 def process_super_manifest(input_manifest, output_manifest):
@@ -540,6 +561,8 @@ def process_super_manifest(input_manifest, output_manifest):
     :return True on success, False otherwise
     """
 
+    success = True
+
     with process_manifest(input_manifest, output_manifest) as manifest:
         # get the <board-manifest-list> element
         board_manifest_list = manifest.find('board-manifest-list')
@@ -547,7 +570,7 @@ def process_super_manifest(input_manifest, output_manifest):
             # iterate over <board-manifest> elements
             for board_manifest in board_manifest_list.findall('board-manifest'):
                 if not process_super_element(board_manifest):
-                    return False
+                    success = False
 
         # get the <app-manifest-list> element
         app_manifest_list = manifest.find('app-manifest-list')
@@ -555,7 +578,7 @@ def process_super_manifest(input_manifest, output_manifest):
             # iterate over <app-manifest> elements
             for app_manifest in app_manifest_list.findall('app-manifest'):
                 if not process_super_element(app_manifest):
-                    return False
+                    success = False
 
         # get the <middleware-manifest-list> element
         middleware_manifest_list = manifest.find('middleware-manifest-list')
@@ -563,9 +586,9 @@ def process_super_manifest(input_manifest, output_manifest):
             # iterate over <middleware-manifest> elements
             for middleware_manifest in middleware_manifest_list.findall('middleware-manifest'):
                 if not process_super_element(middleware_manifest):
-                    return False
+                    success = False
 
-    return True
+    return success
 
 
 def process_board_manifest(input_manifest, output_manifest):
@@ -582,11 +605,12 @@ def process_board_manifest(input_manifest, output_manifest):
             for board_manifest in manifest.findall('board')
             if not board_manifest.find('board_uri').text.startswith('techpack:'))
         # iterate over <board> elements
+        success = True
         for board_manifest in manifest.findall('board'):
             if not process_element(board_manifest, 'board_uri'):
-                return False
+                success = False
 
-    return True
+    return success
 
 
 def process_app_manifest(input_manifest, output_manifest):
@@ -603,11 +627,12 @@ def process_app_manifest(input_manifest, output_manifest):
             for app_manifest in manifest.findall('app')
             if not app_manifest.find('uri').text.startswith('techpack:'))
         # iterate over <app> elements
+        success = True
         for app_manifest in manifest.findall('app'):
             if not process_element(app_manifest, 'uri'):
-                return False
+                success = False
 
-    return True
+    return success
 
 
 def process_middleware_manifest(input_manifest, output_manifest):
@@ -624,11 +649,12 @@ def process_middleware_manifest(input_manifest, output_manifest):
             for middleware_manifest in manifest.findall('middleware')
             if not middleware_manifest.find('uri').text.startswith('techpack:'))
         # iterate over <middleware> elements
+        success = True
         for middleware_manifest in manifest.findall('middleware'):
             if not process_element(middleware_manifest, 'uri'):
-                return False
+                success = False
 
-    return True
+    return success
 
 
 def process_dependency_manifest(input_manifest, output_manifest):
@@ -640,6 +666,8 @@ def process_dependency_manifest(input_manifest, output_manifest):
 
     global ASSET_CACHE
 
+    success = True
+
     with process_manifest(input_manifest, output_manifest) as manifest:
 
         # iterate over <depender> elements
@@ -650,8 +678,11 @@ def process_dependency_manifest(input_manifest, output_manifest):
             depender_repo = ASSET_CACHE.get(depender_id)
             print("\nValidate dependency manifest [<depender> <id>=(uri)]: {} {}".format(depender_id, depender_repo))
             if not depender_repo:
-                print("FATAL ERROR:   cannot process {}".format(depender_repo))
-                return False
+                print("FATAL ERROR: '{}' has not been processed yet; cannot determine its URL!".format(depender_id))
+                if PRIOR_FAILURES:
+                    print("   ... NOTE: there are prior FATAL ERRORs; this may just be a consequence of those issues")
+                success = False
+                continue
 
             # get the <versions> element
             versions_element = depender_element.find('versions')
@@ -666,10 +697,10 @@ def process_dependency_manifest(input_manifest, output_manifest):
                 response = git_reference_check(depender_repo, depender_commit)
                 if not response:
                     print("FATAL ERROR: {} reference doesn't exist at {}".format(depender_commit, depender_repo))
-                    return False
-                if depender_commit in depender_list:
+                    success = False
+                elif depender_commit in depender_list:
                     print("FATAL ERROR: duplicate reference {} in {}".format(depender_commit, depender_repo))
-                    return False
+                    success = False
                 else:
                     depender_list.append( depender_commit )
 
@@ -688,7 +719,10 @@ def process_dependency_manifest(input_manifest, output_manifest):
                     if not dependee_repo:
                         print("FATAL ERROR: '{}' has not been processed yet; cannot determine its URL!".format(dependee_id))
                         print("   ... perhaps seed the 'out/asset_cache.txt' file ...")
-                        return False
+                        if PRIOR_FAILURES:
+                            print("   ... NOTE: there are prior FATAL ERRORs; this may just be a consequence of those issues")
+                        success = False
+                        continue
 
                     # process the <commit> content
                     dependee_commit = dependee_element.find('commit').text
@@ -696,9 +730,9 @@ def process_dependency_manifest(input_manifest, output_manifest):
                     response = git_reference_check(dependee_repo, dependee_commit)
                     if not response:
                         print("FATAL ERROR: {} reference doesn't exist at {}".format(dependee_commit, dependee_repo))
-                        return False
+                        success = False
 
-    return True
+    return success
 
 
 def main():
@@ -743,28 +777,23 @@ def main():
 
     # process the manifest
     if manifest_type == "super":
-        if not process_super_manifest(input_manifest, output_manifest):
-            print("FATAL ERROR: failed to process the super manifest {}".format(input_manifest))
-            sys.exit(1)
+        success = process_super_manifest(input_manifest, output_manifest)
+        error_msg = "failed to process the super manifest {}".format(input_manifest)
     elif manifest_type == "board":
-        if not process_board_manifest(input_manifest, output_manifest):
-            print("FATAL ERROR: failed to process the board manifest {}".format(input_manifest))
-            sys.exit(1)
+        success = process_board_manifest(input_manifest, output_manifest)
+        error_msg = "failed to process the board manifest {}".format(input_manifest)
     elif manifest_type == "app":
-        if not process_app_manifest(input_manifest, output_manifest):
-            print("FATAL ERROR: failed to process the app manifest {}".format(input_manifest))
-            sys.exit(1)
+        success = process_app_manifest(input_manifest, output_manifest)
+        error_msg = "failed to process the app manifest {}".format(input_manifest)
     elif manifest_type == "middleware":
-        if not process_middleware_manifest(input_manifest, output_manifest):
-            print("FATAL ERROR: failed to process the middleware manifest {}".format(input_manifest))
-            sys.exit(1)
+        success = process_middleware_manifest(input_manifest, output_manifest)
+        error_msg = "failed to process the middleware manifest {}".format(input_manifest)
     elif manifest_type == "dependency":
-        if not process_dependency_manifest(input_manifest, output_manifest):
-            print("FATAL ERROR: failed to process the dependency manifest {}".format(input_manifest))
-            sys.exit(1)
+        success = process_dependency_manifest(input_manifest, output_manifest)
+        error_msg = "failed to process the dependency manifest {}".format(input_manifest)
     else:
-        print("FATAL ERROR: unknown manifest type: {}".format(manifest_type))
-        sys.exit(1)
+        success = False
+        error_msg = "unknown manifest type: {}".format(manifest_type)
 
     # save the ASSET CACHE
     with open("out/asset_cache.txt", 'w', newline='') as f:
@@ -781,6 +810,11 @@ def main():
             f.write('%d\n' % len(stdout_lines))
             for line in stdout_lines:
                 f.write('%s\n' % line)
+
+    if not success:
+        print("\nFATAL ERROR: {}".format(error_msg))
+        sys.exit(1)
+
 
 
 if __name__ == '__main__':
